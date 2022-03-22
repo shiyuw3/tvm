@@ -29,7 +29,7 @@ from tvm.runtime import Object, ndarray
 from tvm.driver.build_module import build
 from tvm.target import Target
 from .measure import LocalBuilder, LocalRunner
-from .measure_record import load_best_record
+from .measure_record import load_record, load_best_record
 from .workload_registry import make_workload_key
 from .compute_dag import ComputeDAG, LayoutRewriteOption
 from .cost_model import XGBModel
@@ -496,6 +496,39 @@ class SearchTask(Object):
             search_policy = SketchPolicy(self, cost_model)
 
         _ffi_api.AutoSchedule(search_policy, tuning_options)
+
+    def apply(self, log_file, idx, include_compatible=False, layout_rewrite_option=None):
+        """Apply the history best from a log file and return the schedule.
+
+        Parameters
+        ----------
+        log_file : str
+           The name of the log file.
+        idx : int
+           Index of the record to read.
+        include_compatible: bool
+            When set to True, all compatible records in the log file will be considered.
+        layout_rewrite_option : Optional[LayoutRewriteOption]
+           The layout rewrite option.
+
+
+        Returns
+        -------
+            A `te.Schedule` and the a list of `te.Tensor` to be used in `tvm.lower` or `tvm.build`.
+        """
+        inp, _ = load_record(
+            log_file, idx, self.workload_key, include_compatible=include_compatible
+        )
+        if inp is None:
+            raise RuntimeError(
+                "Cannot find any valid schedule for %s in file %s" % (self.workload_key, log_file)
+            )
+
+        sch, args = self.compute_dag.apply_steps_from_state(
+            inp.state, layout_rewrite_option or self.layout_rewrite_option
+        )
+        return sch, args
+
 
     def apply_best(self, log_file, include_compatible=False, layout_rewrite_option=None):
         """Apply the history best from a log file and return the schedule.

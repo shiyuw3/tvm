@@ -213,6 +213,45 @@ def save_records(filename, inputs, results):
     _ffi_api.SaveRecords(filename, inputs, results)
 
 
+def load_record(filename, idx, workload_key=None, target=None, include_compatible=False):
+    """Return the best measurement pair form a log file. This may return none results if
+    there is no legal measure pair with the specified workload_key/target found from the log file.
+
+    Parameters
+    ----------
+    filename : str
+        File name to load log from.
+    idx : int
+        Index of the record to read.
+    workload_key : Optional[str]
+        The workload key of the compute declaration.
+        With `None`, this returns the best measure pair of all workloads.
+    target : Optional[tvm.target.Target]
+        The target device.
+        With `None`, this returns the best measure pair of all target devices.
+    include_compatible: bool
+        When set to True, all compatible records in the log file will be considered.
+
+    Returns
+    -------
+    input : auto_scheduler.measure.MeasureInput
+        The best State's MeasureInput from this log fine.
+    result : auto_scheduler.measure.MeasureResult
+        The best State's MeasureResult from this log fine.
+    """
+    # The loop to access record of given index might seem stupid, since record
+    # reader is not indexable, Guess that the design comes from consideration of
+    # memory use.
+    log_reader = RecordReader(filename)
+    iter_idx = 0
+    for inp, res in log_reader:
+        if iter_idx == idx:
+            break
+        iter_idx += 1
+
+    return inp, res
+
+
 def load_best_record(filename, workload_key=None, target=None, include_compatible=False):
     """Return the best measurement pair form a log file. This may return none results if
     there is no legal measure pair with the specified workload_key/target found from the log file.
