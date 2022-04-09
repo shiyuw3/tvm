@@ -34,6 +34,7 @@ from .workload_registry import make_workload_key
 from .compute_dag import ComputeDAG, LayoutRewriteOption
 from .cost_model import XGBModel
 from .search_policy import SketchPolicy
+from .lstm_feature import get_lstm_feature_from_state
 from .workload_registry import WORKLOAD_FUNC_REGISTRY, register_workload_tensors
 from . import _ffi_api
 
@@ -497,8 +498,21 @@ class SearchTask(Object):
 
         _ffi_api.AutoSchedule(search_policy, tuning_options)
 
+    def extract_lstm_feature(self, log_file, idx, include_compatible=False):
+        """ Extract LSTM feature from the given log file and index.
+        """
+        inp, _ = load_record(
+            log_file, idx, self.workload_key, include_compatible=include_compatible
+        )
+        if inp is None:
+            raise RuntimeError(
+                "Cannot find any valid schedule for %s in file %s" % (self.workload_key, log_file)
+            )
+        return get_lstm_feature_from_state(self, inp.state)
+
+
     def apply(self, log_file, idx, include_compatible=False, layout_rewrite_option=None):
-        """Apply the history best from a log file and return the schedule.
+        """Apply the history with given index from a log file and return the schedule.
 
         Parameters
         ----------
@@ -529,7 +543,6 @@ class SearchTask(Object):
         )
         return sch, args
 
-
     def apply_best(self, log_file, include_compatible=False, layout_rewrite_option=None):
         """Apply the history best from a log file and return the schedule.
 
@@ -559,6 +572,39 @@ class SearchTask(Object):
             inp.state, layout_rewrite_option or self.layout_rewrite_option
         )
         return sch, args
+
+    def print(self, log_file, idx, print_mode="schedule"):
+        """Print the schedule with given index as python schedule API code or CUDA source code.
+
+        Parameters
+        ----------
+        log_file : str
+           The name of the log file
+        idx : int
+           Index of the record to read.
+        print_mode: str
+           if "schedule", print the best schedule as python schedule API code.
+           if "cuda", print the best schedule as CUDA source code.
+
+        Returns
+        -------
+        code: str
+            The best schedule code in python API or CUDA source code
+        """
+        inp, _ = load_record(log_file, idx, self.workload_key)
+        if inp is None:
+            raise RuntimeError(
+                "Cannot find any valid schedule for %s in file %s" % (self.workload_key, log_file)
+            )
+
+        if print_mode == "schedule":
+            return self.compute_dag.print_python_code_from_state(inp.state)
+        if print_mode == "cuda":
+            assert self.target.kind.name == "cuda"
+            sch, args = self.compute_dag.apply_steps_from_state(inp.state)
+            func = build(sch, args, "cuda")
+            return func.imported_modules[0].get_source()
+        raise ValueError("Invalid print_mode: %s" % print_mode)
 
     def print_best(self, log_file, print_mode="schedule"):
         """Print the best schedule as python schedule API code or CUDA source code.
