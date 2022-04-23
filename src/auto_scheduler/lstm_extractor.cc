@@ -71,6 +71,9 @@ void FeatureVisitor::VisitStmt_(const ForNode* op) {
       LOG(FATAL) << "Loop ThreadBinding is reserved for future used and "
                  << "not yet supported in TIR";
       break;
+    default:
+      LOG(FATAL) << "Unknown annotation type";
+      break;
   }
 
   if (EnterItervar_(op->loop_var, loop_extent, ann)) {
@@ -136,7 +139,6 @@ bool TouchExtractor::EnterItervar_(
   // do not insert duplicated occurrences of virtual thread
   if (ann_type == kVirtualThread && itervar_map.count(var) != 0) {
     skip_stack_size_.push_back(itervar_stack_.size());
-    return true;
   } else {
     itervar_stack_.push_back(var);
     topdown_product_ *= length;
@@ -162,7 +164,8 @@ bool TouchExtractor::EnterItervar_(
 }
 
 void TouchExtractor::ExitItervar_() {
-  if (!skip_stack_size_.empty() && skip_stack_size_.back() == itervar_stack_.size()) {
+  if (!skip_stack_size_.empty() &&
+      skip_stack_size_.back() == itervar_stack_.size()) {
     skip_stack_size_.pop_back();
     return;
   }
@@ -172,13 +175,15 @@ void TouchExtractor::ExitItervar_() {
   for (auto kv : itervar_map[var].touch_feature) {
     if (kv.second.stride != 0) {  // multiply count
       for (auto stack_var : itervar_stack_) {
-        auto touch_pattern = itervar_map[stack_var].touch_feature.find(kv.first);
+        auto touch_pattern =
+            itervar_map[stack_var].touch_feature.find(kv.first);
         ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
         touch_pattern->second.count *= itervar_map[var].length;
       }
     } else {  // multiply reuse ratio
       for (auto stack_var : itervar_stack_) {
-        auto touch_pattern = itervar_map[stack_var].touch_feature.find(kv.first);
+        auto touch_pattern =
+            itervar_map[stack_var].touch_feature.find(kv.first);
         ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
         touch_pattern->second.reuse *= itervar_map[var].length;
       }
@@ -190,25 +195,28 @@ void TouchExtractor::ExitItervar_() {
   if (length != 0) topdown_product_ /= length;
   int64_t bottomup_product = -1;
   for (auto kv : itervar_map[var].touch_feature) {
-    bottomup_product = std::max(bottomup_product, kv.second.count * kv.second.reuse);
+    bottomup_product =
+        std::max(bottomup_product, kv.second.count * kv.second.reuse);
   }
 
   itervar_map[var].bottomup_product = bottomup_product;
 
   // push base to upper parallel axis
   int para_level = ParallelLevel(itervar_map[var].ann);
-  // if is the separate line of parallel level, push the base to upper parallel level
+  // if is the separate line of parallel level, push the base to upper parallel
+  // level
   if (!itervar_stack_.empty() &&
       ParallelLevel(itervar_map[itervar_stack_.back()].ann) == para_level + 1) {
     for (auto kv : itervar_map[var].touch_feature) {
       for (auto stack_var : itervar_stack_) {
         if (ParallelLevel(itervar_map[stack_var].ann) == para_level + 1) {
-          auto touch_pattern = itervar_map[stack_var].touch_feature.find(kv.first);
+          auto touch_pattern =
+              itervar_map[stack_var].touch_feature.find(kv.first);
           ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
-          touch_pattern->second.thread_reuse = -kv.second.reuse;
-          touch_pattern->second.thread_count = -kv.second.count;
           // NOTE: use minus as a flag to denote it is a base,
           // indicating it is not the final value
+          touch_pattern->second.thread_reuse = -kv.second.reuse;
+          touch_pattern->second.thread_count = -kv.second.count;
         }
       }
     }

@@ -105,17 +105,17 @@ struct ItervarFeature {
   ItervarFeature() {}
 
   // Axis Attributes
-  int64_t length;
-  int nest_level;
+  int64_t length{0};
+  int nest_level{0};
   // one-hot axis type
   AnnotationType ann;
   // accumulative product of axis length, in top-down order
-  int64_t topdown_product;
+  int64_t topdown_product{0};
   // accumulative product of axis length, in bottom-up order
-  int64_t bottomup_product;
   // bottomup_product = reuse * count for any touched buffer
-
-  int order;  // used for soring axis
+  int64_t bottomup_product{0};
+  // used for soring axis
+  int order{0};
 
   // Arithmetic feature
   int add_ct{0};
@@ -217,7 +217,8 @@ class TouchExtractor : public FeatureVisitor {
   int64_t topdown_product_{1};
   std::map<std::string, size_t> buffer_counter_;
   size_t itervar_counter_{0};
-  std::deque<Var> itervar_stack_;  // use deque instead of stack for indexing
+  // use deque instead of stack for indexing
+  std::deque<Var> itervar_stack_;
   std::deque<size_t> skip_stack_size_;
 
   using FeatureVisitor::VisitExpr_;
@@ -287,7 +288,8 @@ class ASTExtractor : public FeatureVisitor {
     }
     std::shared_ptr<Tree> node = std::make_shared<Tree>("for");
 
-    if (itervar_map_ == nullptr) {  // do not attach statistic feature on tree node
+    // do not attach statistic feature on tree node
+    if (itervar_map_ == nullptr) {
       // length
       node->additional.push_back(static_cast<float>(length));
       // one hot annotation
