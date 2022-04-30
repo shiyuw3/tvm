@@ -340,9 +340,9 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 //
 // Extract function.
 void ASTExtractor::Extract(
-  Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<std::string, ItervarFeature> *itervar_map,
-  const std::set<TouchedBuffer> *innermost_buffers) {
+    Stmt stmt, std::shared_ptr<Tree> root,
+    const std::unordered_map<std::string, ItervarFeature> *itervar_map,
+    const std::set<TouchedBuffer> *innermost_buffers) {
   root_stack_.push_back(root);
   itervar_map_ = itervar_map;
   innermost_buffers_ = innermost_buffers;
@@ -436,19 +436,110 @@ void ASTExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 
 // START ComputeTensorExtractor.
 void ComputeTensorExtractor::Extract(
-  Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
+    Stmt stmt, std::shared_ptr<Tree> root,
+    const std::map<std::string, std::string> *buf2name,
+    const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
   root_stack_.push_back(root);
+  buf2name_ = buf2name;
   itervar_map_ = itervar_map;
+  CHECK_EQ(itervar_map == nullptr, buf2name == nullptr);
   this->VisitStmt(stmt);
+}
+
+bool ComputeTensorExtractor::EnterItervar_(Var var, int64_t length,
+                                           AnnotationType ann_type) {
+  if (itervar_map_ == nullptr) {
+    LOG(FATAL) << "itervar_map_ of LoopTensorExtractor should not be nullptr";
+    return false;
+  }
+
+  std::string var_name = var.get()->name_hint;
+  std::string new_name =
+      var_name + "_" + std::to_string(var_counter_[var_name]++);
+
+  auto touch_fea_iter = itervar_map_->find(new_name);
+  if (touch_fea_iter == itervar_map_->end()) {
+    LOG(FATAL) << "Var not found in itervar_map_!";
+    return false;
+  }
+
+  std::shared_ptr<Tree> node = std::make_shared<Tree>(new_name);
+  const ItervarFeature *touch_fea = &touch_fea_iter->second;
+
+  // length
+  node->additional.push_back(static_cast<float>(touch_fea->length));
+  // nest level
+  node->additional.push_back(static_cast<float>(touch_fea->nest_level));
+  // topdown product.
+  node->additional.push_back(static_cast<float>(touch_fea->topdown_product));
+  // bottomup product.
+  node->additional.push_back(static_cast<float>(touch_fea->bottomup_product));
+  // one hot annotation
+  for (int i = 0; i < kNum; i++) {
+    node->additional.push_back(static_cast<float>(i == touch_fea->ann));
+  }
+
+  // add itervar as child
+  node->children.push_back(std::make_shared<Tree>(new_name));
+
+  root_stack_.back()->children.push_back(node);
+  root_stack_.push_back(node);
+
+  return true;
+}
+
+void ComputeTensorExtractor::ExitItervar_() {
+  root_stack_.pop_back();
+}
+
+void ComputeTensorExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
+  std::string name = buffer_var.get()->name_hint;
+  TouchedBuffer buf = name + "_" + std::to_string(buffer_counter_[name]++);
+
+  std::shared_ptr<Tree> node = std::make_shared<Tree>(buf);
+  IndexvarCollector collector;
+  collector.Collect(index);
+
+  for (const VarNode *op : collector.vars)
+    node->children.push_back(std::make_shared<Tree>(op->name_hint));
+
+  for (auto iter = root_stack_.rbegin(); iter != root_stack_.rend(); iter++) {
+    // Attach to nearest loop father node.
+    auto name_iter = buf2name_->find(buf);
+    ICHECK(name_iter != buf2name_->end());
+    if (iter->get()->name == name_iter->second) {
+      // Check whether this buffer has been pushed already.
+      bool pushed = false;
+      for (auto child : iter->get()->children) {
+        std::string buf_name = child.get()->name;
+        std::string raw_name = buf_name.substr(0, buf_name.find("_"));
+        // Compare raw buffer name.
+        if (raw_name == buf.substr(0, buf.find("_"))) {
+          pushed = true;
+          break;
+        }
+      }
+      // Push back the node if it has not been pushed.
+      if (!pushed) {
+        iter->get()->children.push_back(node);
+      }
+      break;
+    }
+  }
+
+  root_stack_.push_back(node);
+}
+
+void ComputeTensorExtractor::ExitMem_() {
+  root_stack_.pop_back();
 }
 // END ComputeTensorExtractor.
 
 
 // START LoopTensorExtractor.
 void LoopTensorExtractor::Extract(
-  Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
+    Stmt stmt, std::shared_ptr<Tree> root,
+    const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
   root_stack_.push_back(root);
   itervar_map_ = itervar_map;
   this->VisitStmt(stmt);
@@ -471,7 +562,7 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
     return false;
   }
 
-  std::shared_ptr<Tree> node = std::make_shared<Tree>(var);
+  std::shared_ptr<Tree> node = std::make_shared<Tree>(new_name);
   const ItervarFeature *touch_fea = &touch_fea_iter->second;
 
   // length
@@ -488,7 +579,7 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
   }
 
   // add itervar as child
-  node->children.push_back(std::make_shared<Tree>(var));
+  node->children.push_back(std::make_shared<Tree>(new_name));
 
   root_stack_.back()->children.push_back(node);
   root_stack_.push_back(node);
@@ -523,7 +614,8 @@ int DFSSerialize(std::shared_ptr<const Tree> root,
 
 void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
                     std::vector<char> *data) {
-  std::shared_ptr<Tree> root = std::make_shared<Tree>("root");
+  std::shared_ptr<Tree> cte_root = std::make_shared<Tree>("cte_root");
+  std::shared_ptr<Tree> lte_root = std::make_shared<Tree>("lte_root");
   // ASTExtractor extractor;
   ComputeTensorExtractor cte;
   LoopTensorExtractor lte;
@@ -547,43 +639,33 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
 
     // Find the touched buffers and corresponding innermost levels.
     std::map<TouchedBuffer, int> buf2level;
+    std::map<TouchedBuffer, std::string> buf2name;
     for (auto kv : touch_ext.itervar_map) {
       ItervarFeature fea = kv.second;
       for (auto touch_fea : fea.touch_feature) {
         if (buf2level[touch_fea.first] < fea.nest_level) {
           buf2level[touch_fea.first] = fea.nest_level;
+          buf2name[touch_fea.first] = kv.first;
         }
       }
     }
 
-#if 0
-    for (auto pair : touch_ext.itervar_map) {
-      printf("IterVar: %s\n", pair.first.c_str());
-      printf("NestLevel: %d\n", pair.second.nest_level);
-      for (auto touch : pair.second.touch_feature) {
-        printf("%s\n", touch.first.c_str());
-      }
-    }
-#endif
-
     // Extract compute tensor.
-    cte.Extract(stmt, root, &touch_ext.itervar_map);
+    cte.Extract(stmt, cte_root, &buf2name, &touch_ext.itervar_map);
     // Extract loop tensor.
-    lte.Extract(stmt, root, &touch_ext.itervar_map);
-    // extractor.Extract(stmt, root, &touch_ext.itervar_map, &innermost_buffers);
+    lte.Extract(stmt, lte_root, &touch_ext.itervar_map);
   } else {
     // Extract compute tensor.
-    cte.Extract(stmt, root, nullptr);
+    cte.Extract(stmt, cte_root, nullptr, nullptr);
     // Extract loop tensor.
-    lte.Extract(stmt, root, nullptr);
-    // extractor.Extract(stmt, root, nullptr, nullptr);
+    lte.Extract(stmt, lte_root, nullptr);
   }
 
   // serialize tree structure for front end
   std::vector<std::vector<int>> children;
   std::vector<std::string> names;
   std::vector<std::vector<float>> additionals;
-  DFSSerialize(root, &children, &names, &additionals);
+  DFSSerialize(cte_root, &children, &names, &additionals);
 
   // calculate size
   int32_t n_tree = static_cast<int>(children.size());

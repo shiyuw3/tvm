@@ -287,21 +287,20 @@ class ComputeTensorExtractor : public FeatureVisitor {
  public:
   void Extract(
       Stmt stmt, std::shared_ptr<Tree> root,
+      const std::map<std::string, std::string> *buf2name,
       const std::unordered_map<std::string, ItervarFeature> *itervar_map);
 
  private:
-  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
-    printf("%s\n", var.get()->name_hint.c_str());
-    return true;
-  }
-  void ExitItervar_() {}
-  void EnterMem_(Var buffer_var, PrimExpr index) {
-    printf("%s\n", buffer_var.get()->name_hint.c_str());
-  }
-  void ExitMem_() {}
+  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
+  void ExitItervar_();
+  void EnterMem_(Var buffer_var, PrimExpr index);
+  void ExitMem_();
 
 private:
   std::deque<std::shared_ptr<Tree>> root_stack_;
+  std::map<std::string, size_t> buffer_counter_;
+  std::map<std::string, size_t> var_counter_;
+  const std::map<std::string, std::string> *buf2name_;
   const std::unordered_map<std::string, ItervarFeature> *itervar_map_;
 };
 
