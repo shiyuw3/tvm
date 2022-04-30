@@ -83,7 +83,9 @@ inline bool EndsWith(std::string const & value, std::string const & ending) {
 void FeatureVisitor::VisitStmt_(const ForNode* op) {
   const auto* extent = op->extent.as<IntImmNode>();
   int64_t loop_extent = -1;
-  if (extent != nullptr) loop_extent = extent->value;
+  if (extent != nullptr) {
+    loop_extent = extent->value;
+  }
   AnnotationType ann = kSerial;
   switch (op->kind) {
     case ForKind ::kParallel:
@@ -385,8 +387,10 @@ bool ASTExtractor::EnterItervar_(Var var, int64_t length,
 }
 
 void ASTExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
+#if 0
   if (itervar_map_ != nullptr)
     return;
+#endif
 
   std::shared_ptr<Tree> node = std::make_shared<Tree>(buffer_var);
   IndexvarCollector collector;
@@ -410,8 +414,52 @@ void ASTExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 
 // START LoopExtractor.
 void LoopTensorExtractor::Extract(
-    const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                             tvm::ObjectPtrEqual> *itervar_map) {}
+  Stmt stmt, std::shared_ptr<Tree> root,
+  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                           tvm::ObjectPtrEqual> *itervar_map) {
+  root_stack_.push_back(root);
+  itervar_map_ = itervar_map;
+  this->VisitStmt(stmt);
+}
+
+bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
+                                        AnnotationType ann_type) {
+  if (itervar_map_ == nullptr) {
+    LOG(FATAL) << "itervar_map_ of LoopTensorExtractor should not be nullptr";
+    return false;
+  }
+
+  std::shared_ptr<Tree> node = std::make_shared<Tree>(var);
+  const ItervarFeature *touch_fea = &itervar_map_->find(var)->second;
+  if (touch_fea == nullptr) {
+    LOG(FATAL) << "Var not found in itervar_map_!";
+  }
+
+  // length
+  node->additional.push_back(static_cast<float>(touch_fea->length));
+  // nest level
+  node->additional.push_back(static_cast<float>(touch_fea->nest_level));
+  // topdown product.
+  node->additional.push_back(static_cast<float>(touch_fea->topdown_product));
+  // bottomup product.
+  node->additional.push_back(static_cast<float>(touch_fea->bottomup_product));
+  // one hot annotation
+  for (int i = 0; i < kNum; i++) {
+    node->additional.push_back(static_cast<float>(i == touch_fea->ann));
+  }
+
+  // add itervar as child
+  node->children.push_back(std::make_shared<Tree>(var));
+
+  root_stack_.back()->children.push_back(node);
+  root_stack_.push_back(node);
+
+  return true;
+}
+
+void LoopTensorExtractor::ExitItervar_() {
+  root_stack_.pop_back();
+}
 // END LoopExtractor.
 
 
@@ -437,7 +485,7 @@ int DFSSerialize(std::shared_ptr<const Tree> root,
 void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
                     std::vector<char> *data) {
   std::shared_ptr<Tree> root = std::make_shared<Tree>("root");
-  ASTExtractor extractor;
+  // ASTExtractor extractor;
   LoopTensorExtractor lte;
 
   if (add_stats) {
@@ -487,10 +535,13 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
       }
     }
 
-    extractor.Extract(stmt, root, &touch_ext.itervar_map, &innermost_buffers);
-    // lte.Extract(&touch_ext.itervar_map);
+    // Extract loop tensor.
+    lte.Extract(stmt, root, &touch_ext.itervar_map);
+    // extractor.Extract(stmt, root, &touch_ext.itervar_map, &innermost_buffers);
   } else {
-    extractor.Extract(stmt, root, nullptr, nullptr);
+    // Extract loop tensor.
+    lte.Extract(stmt, root, nullptr);
+    // extractor.Extract(stmt, root, nullptr, nullptr);
   }
 
   // serialize tree structure for front end
@@ -645,7 +696,8 @@ void GetLSTMFeaturesFromStates(
 
 /*
  * \brief Serialize a two-dimensional variable-size feature vector with
- * normalized throughputs and task ids to a one-dimensional flatten byte array.
+ *        normalized throughputs and task ids to a one-dimensional flatten byte
+ *        array.
  *
  * For faster data copy between c++ and python, the c++ part returns features in
  * a single flatten array using a packed format. The python part then unpacks

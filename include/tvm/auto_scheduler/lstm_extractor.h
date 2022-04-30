@@ -259,8 +259,10 @@ class ASTExtractor : public FeatureVisitor {
   }
   void EnterMem_(Var buffer_var, PrimExpr index);
   void ExitMem_() {
+#if 0
     if (itervar_map_ != nullptr)
       return;
+#endif
     root_stack_.pop_back();
   }
 
@@ -274,16 +276,19 @@ class ASTExtractor : public FeatureVisitor {
 // Loop tensor extractor.
 class LoopTensorExtractor : public FeatureVisitor {
  public:
-  void Extract(const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+  void Extract(Stmt stmt, std::shared_ptr<Tree> root,
+               const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
                                         tvm::ObjectPtrEqual> *itervar_map);
+
+ private:
   // Instantiation of pure functions.
-  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
-    return true;
-  }
-  void ExitItervar_() {}
+  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
+  void ExitItervar_();
   void EnterMem_(Var buffer_var, PrimExpr index) {}
   void ExitMem_() {}
+
  private:
+  std::deque<std::shared_ptr<Tree>> root_stack_;
   const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
                            tvm::ObjectPtrEqual> *itervar_map_;
 };
