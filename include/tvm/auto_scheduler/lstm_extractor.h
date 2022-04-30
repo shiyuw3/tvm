@@ -130,22 +130,6 @@ struct ItervarFeature {
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
 };
 
-int ParallelLevel(AnnotationType ann) {
-  switch (ann) {
-    case kBlockX:
-    case kBlockY:
-    case kBlockZ:
-      return 2;
-    case kThreadX:
-    case kThreadY:
-    case kThreadZ:
-    case kParallel:
-      return 1;
-    default:
-      return 0;
-  }
-}
-
 // get touch pattern from index expression
 class IndexParser : public ExprVisitor {
  public:
@@ -260,117 +244,23 @@ class IndexvarCollector: public ExprVisitor {
   std::set<const VarNode*> vars;
 };
 
-/*!
-* \brief Return whether the string `value` ends with string `ending`
-* \param value Base string
-* \param ending Ending string
-*/
-inline bool EndsWith(std::string const & value, std::string const & ending) {
-  if (ending.size() > value.size()) return false;
-  return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
-}
-
 // extract simplified ast
 class ASTExtractor : public FeatureVisitor {
  public:
   void Extract(Stmt stmt, std::shared_ptr<Tree> root,
                const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
                                         tvm::ObjectPtrEqual> *itervar_map,
-               const std::set<TouchedBuffer> *innermost_buffers) {
-    root_stack_.push_back(root);
-    itervar_map_ = itervar_map;
-    innermost_buffers_ = innermost_buffers;
-    cHECK_EQ(itervar_map == nullptr, innermost_buffers == nullptr);
-    this->VisitStmt(stmt);
-  }
+               const std::set<TouchedBuffer> *innermost_buffers);
 
  private:
-  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
-// FIXME(wsy): Seems happen if we count BufferLoad and BufferStore.
-#if 0
-    if (EndsWith(var.get()->name_hint, ".init")) {
-      LOG(FATAL) << "Should never happen!!";
-      return false;
-    }
-#endif
-    std::shared_ptr<Tree> node = std::make_shared<Tree>("for");
-
-    // do not attach statistic feature on tree node
-    if (itervar_map_ == nullptr) {
-      // length
-      node->additional.push_back(static_cast<float>(length));
-      // one hot annotation
-      for (int i = 0; i < kNum; i++) {
-        node->additional.push_back(static_cast<float>(i == ann_type));
-      }
-    } else {
-      const ItervarFeature *touch_fea = &itervar_map_->find(var)->second;
-
-      // check if it is in the longest chain of the tree
-      bool found = false;
-      for (auto x : touch_fea->touch_feature) {
-        if (innermost_buffers_->find(x.first) != innermost_buffers_->end()) {
-          found = true;
-          break;
-        }
-      }
-      // if it is not in the longest chain of the tree, skip this subtree
-      if (!found) return false;
-
-      // length
-      node->additional.push_back(static_cast<float>(length));
-      // one hot annotation
-      for (int i = 0; i < kNum; i++) {
-        node->additional.push_back(static_cast<float>(i == ann_type));
-      }
-      // buffer access patten
-      node->additional.push_back(
-          static_cast<float>(touch_fea->topdown_product));
-      for (auto x : touch_fea->touch_feature) {
-        if (innermost_buffers_->find(x.first) == innermost_buffers_->end())
-          continue;
-        node->additional.push_back(static_cast<float>(x.second.count));
-        node->additional.push_back(static_cast<float>(x.second.reuse));
-      }
-    }
-    // add itervar as child
-    node->children.push_back(std::make_shared<Tree>(var));
-
-    root_stack_.back()->children.push_back(node);
-    root_stack_.push_back(node);
-    return true;
-  }
-
+  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
   void ExitItervar_() {
     root_stack_.pop_back();
   }
-
-  void EnterMem_(Var buffer_var, PrimExpr index) {
-    if (itervar_map_ != nullptr)
-      return;
-
-    std::shared_ptr<Tree> node = std::make_shared<Tree>(buffer_var);
-    IndexvarCollector collector;
-    collector.Collect(index);
-
-    for (const VarNode *op : collector.vars)
-      node->children.push_back(std::make_shared<Tree>(op->name_hint));
-
-    for (auto iter = root_stack_.rbegin(); iter != root_stack_.rend(); iter++) {
-      // attach to nearest loop father node
-      if (iter->get()->name == "for") {
-        iter->get()->children.push_back(node);
-        break;
-      }
-    }
-
-    root_stack_.push_back(node);
-  }
-
+  void EnterMem_(Var buffer_var, PrimExpr index);
   void ExitMem_() {
     if (itervar_map_ != nullptr)
       return;
-
     root_stack_.pop_back();
   }
 
