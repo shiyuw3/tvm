@@ -102,7 +102,7 @@ struct TouchPattern {
 
 // all the feature of an iter var
 struct ItervarFeature {
-  ItervarFeature(Var var, int64_t extent, int nest, AnnotationType ann_type,
+  ItervarFeature(int64_t extent, int nest, AnnotationType ann_type,
                  int64_t topdown, int counter)
       : length(extent), nest_level(nest), ann(ann_type),
         topdown_product(topdown), order(counter) {}
@@ -169,32 +169,41 @@ class TouchExtractor : public FeatureVisitor {
 
   // arithmetic stats
   void VisitExpr_(const AddNode* op) final {
-    if (op->dtype.is_float()) itervar_map[itervar_stack_.back()].add_ct++;
+    if (op->dtype.is_float()) {
+      itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const SubNode* op) final {
-    if (op->dtype.is_float()) itervar_map[itervar_stack_.back()].add_ct++;
+    if (op->dtype.is_float()) {
+      itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const MulNode* op) final {
-    if (op->dtype.is_float()) itervar_map[itervar_stack_.back()].mul_ct++;
+    if (op->dtype.is_float()) {
+      itervar_map[itervar_stack_.back().get()->name_hint].mul_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const DivNode* op) final {
-    if (op->dtype.is_float()) itervar_map[itervar_stack_.back()].div_ct++;
+    if (op->dtype.is_float()) {
+      itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const ModNode* op) final {
-    if (op->dtype.is_float()) itervar_map[itervar_stack_.back()].div_ct++;
+    if (op->dtype.is_float()) {
+      itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
+    }
     FeatureVisitor::VisitExpr_(op);
   }
 
-  std::unordered_map<Var, ItervarFeature,
-                     tvm::ObjectPtrHash, tvm::ObjectPtrEqual> itervar_map;
+  std::unordered_map<std::string, ItervarFeature> itervar_map;
 
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
@@ -248,10 +257,10 @@ class IndexvarCollector: public ExprVisitor {
 // extract simplified ast
 class ASTExtractor : public FeatureVisitor {
  public:
-  void Extract(Stmt stmt, std::shared_ptr<Tree> root,
-               const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                                        tvm::ObjectPtrEqual> *itervar_map,
-               const std::set<TouchedBuffer> *innermost_buffers);
+  void Extract(
+      Stmt stmt, std::shared_ptr<Tree> root,
+      const std::unordered_map<std::string, ItervarFeature> *itervar_map,
+      const std::set<TouchedBuffer> *innermost_buffers);
 
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type);
@@ -269,38 +278,39 @@ class ASTExtractor : public FeatureVisitor {
 
  private:
   std::deque<std::shared_ptr<Tree>> root_stack_;
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map_;
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map_;
   const std::set<TouchedBuffer> *innermost_buffers_;
 };
 
 // Computation Tensor Extractor.
 class ComputeTensorExtractor : public FeatureVisitor {
  public:
-  void Extract(Stmt stmt, std::shared_ptr<Tree> root,
-               const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                                        tvm::ObjectPtrEqual> *itervar_map);
+  void Extract(
+      Stmt stmt, std::shared_ptr<Tree> root,
+      const std::unordered_map<std::string, ItervarFeature> *itervar_map);
 
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
+    printf("%s\n", var.get()->name_hint.c_str());
     return true;
   }
   void ExitItervar_() {}
-  void EnterMem_(Var buffer_var, PrimExpr index) {}
+  void EnterMem_(Var buffer_var, PrimExpr index) {
+    printf("%s\n", buffer_var.get()->name_hint.c_str());
+  }
   void ExitMem_() {}
 
 private:
   std::deque<std::shared_ptr<Tree>> root_stack_;
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map_;
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map_;
 };
 
 // Loop tensor extractor.
 class LoopTensorExtractor : public FeatureVisitor {
  public:
-  void Extract(Stmt stmt, std::shared_ptr<Tree> root,
-               const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                                        tvm::ObjectPtrEqual> *itervar_map);
+  void Extract(
+      Stmt stmt, std::shared_ptr<Tree> root,
+      const std::unordered_map<std::string, ItervarFeature> *itervar_map);
 
  private:
   // Instantiation of pure functions.
@@ -311,8 +321,8 @@ class LoopTensorExtractor : public FeatureVisitor {
 
  private:
   std::deque<std::shared_ptr<Tree>> root_stack_;
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map_;
+  std::map<std::string, size_t> var_counter_;
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map_;
 };
 
 void GetLSTMFeature(const Stmt& stmt, bool add_stats, std::vector<char> *data);

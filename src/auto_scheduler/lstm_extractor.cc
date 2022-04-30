@@ -225,14 +225,15 @@ bool TouchExtractor::EnterItervar_(
 
   // Use static index to ensure that there are no duplicate var names.
   std::string var_name = var.get()->name_hint;
-  Var new_var = Var(var_name + "_" + std::to_string(var_counter_[var_name]++));
-  itervar_stack_.push_back(new_var);
+  std::string new_name =
+      var_name + "_" + std::to_string(var_counter_[var_name]++);
+  itervar_stack_.push_back(Var(new_name));
   topdown_product_ *= length;
   itervar_map.insert(
-      {var, ItervarFeature(new_var, length,
-                           static_cast<int>(itervar_stack_.size()), ann_type,
-                           topdown_product_,
-                           static_cast<int>(itervar_counter_++))});
+      {new_name,
+       ItervarFeature(length, static_cast<int>(itervar_stack_.size()), ann_type,
+                      topdown_product_,
+                      static_cast<int>(itervar_counter_++))});
 
   return true;
 }
@@ -244,49 +245,56 @@ void TouchExtractor::ExitItervar_() {
     return;
   }
   Var var = itervar_stack_.back();
+  std::string var_name = var.get()->name_hint;
 
   // update count and reuse ratio for upper iter vars (includes self)
-  for (auto kv : itervar_map[var].touch_feature) {
+  for (auto kv : itervar_map[var_name].touch_feature) {
     if (kv.second.stride != 0) {  // multiply count
       for (auto stack_var : itervar_stack_) {
+        std::string stack_var_name = stack_var.get()->name_hint;
         auto touch_pattern =
-            itervar_map[stack_var].touch_feature.find(kv.first);
-        ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
-        touch_pattern->second.count *= itervar_map[var].length;
+            itervar_map[stack_var_name].touch_feature.find(kv.first);
+        ICHECK(touch_pattern !=
+                   itervar_map[stack_var_name].touch_feature.end());
+        touch_pattern->second.count *= itervar_map[var_name].length;
       }
     } else {  // multiply reuse ratio
       for (auto stack_var : itervar_stack_) {
+        std::string stack_var_name = stack_var.get()->name_hint;
         auto touch_pattern =
-            itervar_map[stack_var].touch_feature.find(kv.first);
-        ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
-        touch_pattern->second.reuse *= itervar_map[var].length;
+            itervar_map[stack_var_name].touch_feature.find(kv.first);
+        ICHECK(touch_pattern != itervar_map[stack_var_name].touch_feature.end());
+        touch_pattern->second.reuse *= itervar_map[var_name].length;
       }
     }
   }
   itervar_stack_.pop_back();
 
-  int64_t length = itervar_map[var].length;
+  int64_t length = itervar_map[var_name].length;
   if (length != 0) topdown_product_ /= length;
   int64_t bottomup_product = -1;
-  for (auto kv : itervar_map[var].touch_feature) {
+  for (auto kv : itervar_map[var_name].touch_feature) {
     bottomup_product =
         std::max(bottomup_product, kv.second.count * kv.second.reuse);
   }
 
-  itervar_map[var].bottomup_product = bottomup_product;
+  itervar_map[var_name].bottomup_product = bottomup_product;
 
   // push base to upper parallel axis
-  int para_level = ParallelLevel(itervar_map[var].ann);
+  int para_level = ParallelLevel(itervar_map[var_name].ann);
   // if is the separate line of parallel level, push the base to upper parallel
   // level
   if (!itervar_stack_.empty() &&
-      ParallelLevel(itervar_map[itervar_stack_.back()].ann) == para_level + 1) {
-    for (auto kv : itervar_map[var].touch_feature) {
+      ParallelLevel(itervar_map[itervar_stack_.back().get()->name_hint].ann) ==
+          para_level + 1) {
+    for (auto kv : itervar_map[var_name].touch_feature) {
       for (auto stack_var : itervar_stack_) {
-        if (ParallelLevel(itervar_map[stack_var].ann) == para_level + 1) {
+        std::string stack_var_name = stack_var.get()->name_hint;
+        if (ParallelLevel(itervar_map[stack_var_name].ann) == para_level + 1) {
           auto touch_pattern =
-              itervar_map[stack_var].touch_feature.find(kv.first);
-          ICHECK(touch_pattern != itervar_map[stack_var].touch_feature.end());
+              itervar_map[stack_var_name].touch_feature.find(kv.first);
+          ICHECK(touch_pattern !=
+                     itervar_map[stack_var_name].touch_feature.end());
           // NOTE: use minus as a flag to denote it is a base,
           // indicating it is not the final value
           touch_pattern->second.thread_reuse = -kv.second.reuse;
@@ -296,11 +304,11 @@ void TouchExtractor::ExitItervar_() {
     }
   }
 
-  for (auto kv : itervar_map[var].touch_feature) {
+  for (auto kv : itervar_map[var_name].touch_feature) {
     if (kv.second.thread_count < 0) {
-      itervar_map[var].touch_feature[kv.first].thread_count =
+      itervar_map[var_name].touch_feature[kv.first].thread_count =
           kv.second.count / (-kv.second.thread_count);
-      itervar_map[var].touch_feature[kv.first].thread_reuse =
+      itervar_map[var_name].touch_feature[kv.first].thread_reuse =
           kv.second.reuse / (-kv.second.thread_reuse);
     }
   }
@@ -316,11 +324,12 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 
   // push up mem access info
   for (auto var : itervar_stack_) {
+    std::string var_name = var.get()->name_hint;
     auto x = parser.pattern_map.find(var.get());
     if (x != parser.pattern_map.end()) {
-      itervar_map[var].touch_feature[buf] = x->second;
+      itervar_map[var_name].touch_feature[buf] = x->second;
     } else {
-      itervar_map[var].touch_feature[buf] = TouchPattern();
+      itervar_map[var_name].touch_feature[buf] = TouchPattern();
     }
   }
 }
@@ -332,8 +341,7 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 // Extract function.
 void ASTExtractor::Extract(
   Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map,
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map,
   const std::set<TouchedBuffer> *innermost_buffers) {
   root_stack_.push_back(root);
   itervar_map_ = itervar_map;
@@ -362,7 +370,8 @@ bool ASTExtractor::EnterItervar_(Var var, int64_t length,
       node->additional.push_back(static_cast<float>(i == ann_type));
     }
   } else {
-    const ItervarFeature *touch_fea = &itervar_map_->find(var)->second;
+    const ItervarFeature *touch_fea =
+        &itervar_map_->find(var.get()->name_hint)->second;
 
     // check if it is in the longest chain of the tree
     bool found = false;
@@ -428,8 +437,7 @@ void ASTExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 // START ComputeTensorExtractor.
 void ComputeTensorExtractor::Extract(
   Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map) {
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
   root_stack_.push_back(root);
   itervar_map_ = itervar_map;
   this->VisitStmt(stmt);
@@ -440,8 +448,7 @@ void ComputeTensorExtractor::Extract(
 // START LoopTensorExtractor.
 void LoopTensorExtractor::Extract(
   Stmt stmt, std::shared_ptr<Tree> root,
-  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
-                           tvm::ObjectPtrEqual> *itervar_map) {
+  const std::unordered_map<std::string, ItervarFeature> *itervar_map) {
   root_stack_.push_back(root);
   itervar_map_ = itervar_map;
   this->VisitStmt(stmt);
@@ -454,11 +461,18 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
     return false;
   }
 
-  std::shared_ptr<Tree> node = std::make_shared<Tree>(var);
-  const ItervarFeature *touch_fea = &itervar_map_->find(var)->second;
-  if (touch_fea == nullptr) {
+  std::string var_name = var.get()->name_hint;
+  std::string new_name =
+      var_name + "_" + std::to_string(var_counter_[var_name]++);
+
+  auto touch_fea_iter = itervar_map_->find(new_name);
+  if (touch_fea_iter == itervar_map_->end()) {
     LOG(FATAL) << "Var not found in itervar_map_!";
+    return false;
   }
+
+  std::shared_ptr<Tree> node = std::make_shared<Tree>(var);
+  const ItervarFeature *touch_fea = &touch_fea_iter->second;
 
   // length
   node->additional.push_back(static_cast<float>(touch_fea->length));
@@ -521,45 +535,36 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
     touch_ext.Analyze(stmt);
 
     // sort loop vars according to order
-    std::vector<tir::Var> vars;
+    std::vector<std::string> var_names;
     for (auto kv : touch_ext.itervar_map) {
-      vars.push_back(kv.first);
+      var_names.push_back(kv.first);
     }
-    std::sort(vars.begin(), vars.end(),
-              [&](const tir::Var &lhs, const tir::Var &rhs)
-                  -> bool {
+    std::sort(var_names.begin(), var_names.end(),
+              [&](const std::string &lhs, const std::string &rhs) -> bool {
       return
           touch_ext.itervar_map[lhs].order < touch_ext.itervar_map[rhs].order;
     });
 
-    // find maximum depth of loop nests and the innermost buffers
-    int max_depth = 0;
-    std::set<std::string> added;
-    std::set<TouchedBuffer> innermost_buffers;
-
-    for (auto var : vars) {
-      ItervarFeature &fea = touch_ext.itervar_map[var];
-      max_depth = std::max(max_depth, fea.nest_level);
-    }
-
-    // mark inner most buffer
-    for (auto iter = vars.rbegin(); iter != vars.rend(); iter++) {
-      auto var = *iter;
-      ItervarFeature &fea = touch_ext.itervar_map[var];
-      if (fea.nest_level == max_depth) {
-        for (auto kv : fea.touch_feature) {
-          std::string raw_name = kv.first.substr(0, kv.first.size() - 2);
-          size_t pos = raw_name.find(".");
-          if (pos < kv.first.size())
-            raw_name = raw_name.substr(0, pos);
-
-          if (added.find(raw_name) == added.end()) {
-            innermost_buffers.insert(kv.first);
-            added.insert(raw_name);
-          }
+    // Find the touched buffers and corresponding innermost levels.
+    std::map<TouchedBuffer, int> buf2level;
+    for (auto kv : touch_ext.itervar_map) {
+      ItervarFeature fea = kv.second;
+      for (auto touch_fea : fea.touch_feature) {
+        if (buf2level[touch_fea.first] < fea.nest_level) {
+          buf2level[touch_fea.first] = fea.nest_level;
         }
       }
     }
+
+#if 0
+    for (auto pair : touch_ext.itervar_map) {
+      printf("IterVar: %s\n", pair.first.c_str());
+      printf("NestLevel: %d\n", pair.second.nest_level);
+      for (auto touch : pair.second.touch_feature) {
+        printf("%s\n", touch.first.c_str());
+      }
+    }
+#endif
 
     // Extract compute tensor.
     cte.Extract(stmt, root, &touch_ext.itervar_map);
