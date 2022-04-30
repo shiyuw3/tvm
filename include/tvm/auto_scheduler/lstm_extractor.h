@@ -204,6 +204,7 @@ class TouchExtractor : public FeatureVisitor {
 
   int64_t topdown_product_{1};
   std::map<std::string, size_t> buffer_counter_;
+  std::map<std::string, size_t> var_counter_;
   size_t itervar_counter_{0};
   // use deque instead of stack for indexing
   std::deque<Var> itervar_stack_;
@@ -271,6 +272,27 @@ class ASTExtractor : public FeatureVisitor {
   const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
                            tvm::ObjectPtrEqual> *itervar_map_;
   const std::set<TouchedBuffer> *innermost_buffers_;
+};
+
+// Computation Tensor Extractor.
+class ComputeTensorExtractor : public FeatureVisitor {
+ public:
+  void Extract(Stmt stmt, std::shared_ptr<Tree> root,
+               const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                                        tvm::ObjectPtrEqual> *itervar_map);
+
+ private:
+  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
+    return true;
+  }
+  void ExitItervar_() {}
+  void EnterMem_(Var buffer_var, PrimExpr index) {}
+  void ExitMem_() {}
+
+private:
+  std::deque<std::shared_ptr<Tree>> root_stack_;
+  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                           tvm::ObjectPtrEqual> *itervar_map_;
 };
 
 // Loop tensor extractor.

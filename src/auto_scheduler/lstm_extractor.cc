@@ -197,6 +197,7 @@ void FeatureVisitor::VisitStmt_(const ProducerStoreNode* op) {
 // extract iter vars and their touch pattern from ir
 bool TouchExtractor::EnterItervar_(
     Var var, int64_t length, AnnotationType ann_type) {
+#if 0
   // do not insert duplicated occurrences of virtual thread
   if (ann_type == kVirtualThread && itervar_map.count(var) != 0) {
     skip_stack_size_.push_back(itervar_stack_.size());
@@ -220,6 +221,18 @@ bool TouchExtractor::EnterItervar_(
                              topdown_product_,
                              static_cast<int>(itervar_counter_++))});
   }
+#endif
+
+  // Use static index to ensure that there are no duplicate var names.
+  std::string var_name = var.get()->name_hint;
+  Var new_var = Var(var_name + "_" + std::to_string(var_counter_[var_name]++));
+  itervar_stack_.push_back(new_var);
+  topdown_product_ *= length;
+  itervar_map.insert(
+      {var, ItervarFeature(new_var, length,
+                           static_cast<int>(itervar_stack_.size()), ann_type,
+                           topdown_product_,
+                           static_cast<int>(itervar_counter_++))});
 
   return true;
 }
@@ -412,7 +425,19 @@ void ASTExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
 // END ASTExtractor.
 
 
-// START LoopExtractor.
+// START ComputeTensorExtractor.
+void ComputeTensorExtractor::Extract(
+  Stmt stmt, std::shared_ptr<Tree> root,
+  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                           tvm::ObjectPtrEqual> *itervar_map) {
+  root_stack_.push_back(root);
+  itervar_map_ = itervar_map;
+  this->VisitStmt(stmt);
+}
+// END ComputeTensorExtractor.
+
+
+// START LoopTensorExtractor.
 void LoopTensorExtractor::Extract(
   Stmt stmt, std::shared_ptr<Tree> root,
   const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
@@ -460,7 +485,7 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
 void LoopTensorExtractor::ExitItervar_() {
   root_stack_.pop_back();
 }
-// END LoopExtractor.
+// END LoopTensorExtractor.
 
 
 // serialize a tree
@@ -486,6 +511,7 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
                     std::vector<char> *data) {
   std::shared_ptr<Tree> root = std::make_shared<Tree>("root");
   // ASTExtractor extractor;
+  ComputeTensorExtractor cte;
   LoopTensorExtractor lte;
 
   if (add_stats) {
@@ -535,10 +561,14 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
       }
     }
 
+    // Extract compute tensor.
+    cte.Extract(stmt, root, &touch_ext.itervar_map);
     // Extract loop tensor.
     lte.Extract(stmt, root, &touch_ext.itervar_map);
     // extractor.Extract(stmt, root, &touch_ext.itervar_map, &innermost_buffers);
   } else {
+    // Extract compute tensor.
+    cte.Extract(stmt, root, nullptr);
     // Extract loop tensor.
     lte.Extract(stmt, root, nullptr);
     // extractor.Extract(stmt, root, nullptr, nullptr);
