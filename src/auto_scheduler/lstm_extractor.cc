@@ -127,10 +127,34 @@ void FeatureVisitor::VisitExpr_(const LoadNode* op) {
   ExitMem_();
 }
 
+void FeatureVisitor::VisitExpr_(const BufferLoadNode* op) {
+  for (auto index : op->indices) {
+    EnterMem_(op->buffer.get()->data, index);
+  }
+  StmtExprVisitor::VisitExpr_(op);
+  ExitMem_();
+}
+
+void FeatureVisitor::VisitExpr_(const ProducerLoadNode* op) {
+  LOG(FATAL) << "FeatureVisitor for ProducerLoadNode not yet supported";
+}
+
 void FeatureVisitor::VisitStmt_(const StoreNode* op) {
   EnterMem_(op->buffer_var, op->index);
   StmtExprVisitor::VisitStmt_(op);
   ExitMem_();
+}
+
+void FeatureVisitor::VisitStmt_(const BufferStoreNode* op) {
+  for (auto index : op->indices) {
+    EnterMem_(op->buffer.get()->data, index);
+  }
+  StmtExprVisitor::VisitStmt_(op);
+  ExitMem_();
+}
+
+void FeatureVisitor::VisitStmt_(const ProducerStoreNode* op) {
+  LOG(FATAL) << "FeatureVisitor for ProducerStoreNode not yet supported";
 }
 
 // extract iter vars and their touch pattern from ir
@@ -251,6 +275,10 @@ void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
   }
 }
 
+void LoopTensorExtractor::Extract(
+    const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                             tvm::ObjectPtrEqual> *itervar_map) {}
+
 // serialize a tree
 int DFSSerialize(std::shared_ptr<const Tree> root,
                  std::vector<std::vector<int>> *children,
@@ -274,6 +302,7 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
                     std::vector<char> *data) {
   std::shared_ptr<Tree> root = std::make_shared<Tree>("root");
   ASTExtractor extractor;
+  LoopTensorExtractor lte;
 
   if (add_stats) {
     TouchExtractor touch_ext;
@@ -323,6 +352,7 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
     }
 
     extractor.Extract(stmt, root, &touch_ext.itervar_map, &innermost_buffers);
+    // lte.Extract(&touch_ext.itervar_map);
   } else {
     extractor.Extract(stmt, root, nullptr, nullptr);
   }

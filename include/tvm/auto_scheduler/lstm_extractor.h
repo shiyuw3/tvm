@@ -57,7 +57,11 @@ class FeatureVisitor : public StmtExprVisitor {
 
   // memory access
   void VisitExpr_(const LoadNode* op) final;
+  void VisitExpr_(const BufferLoadNode* op) final;
+  void VisitExpr_(const ProducerLoadNode* op) final;
   void VisitStmt_(const StoreNode* op) final;
+  void VisitStmt_(const BufferStoreNode* op) final;
+  void VisitStmt_(const ProducerStoreNode* op) final;
 
   using StmtExprVisitor::VisitExpr_;
   using StmtExprVisitor::VisitStmt_;
@@ -276,16 +280,19 @@ class ASTExtractor : public FeatureVisitor {
     root_stack_.push_back(root);
     itervar_map_ = itervar_map;
     innermost_buffers_ = innermost_buffers;
-    CHECK_EQ(itervar_map == nullptr, innermost_buffers == nullptr);
+    cHECK_EQ(itervar_map == nullptr, innermost_buffers == nullptr);
     this->VisitStmt(stmt);
   }
 
  private:
   bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
+// FIXME(wsy): Seems happen if we count BufferLoad and BufferStore.
+#if 0
     if (EndsWith(var.get()->name_hint, ".init")) {
       LOG(FATAL) << "Should never happen!!";
       return false;
     }
+#endif
     std::shared_ptr<Tree> node = std::make_shared<Tree>("for");
 
     // do not attach statistic feature on tree node
@@ -372,6 +379,23 @@ class ASTExtractor : public FeatureVisitor {
   const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
                            tvm::ObjectPtrEqual> *itervar_map_;
   const std::set<TouchedBuffer> *innermost_buffers_;
+};
+
+// Loop tensor extractor.
+class LoopTensorExtractor : public FeatureVisitor {
+ public:
+  void Extract(const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                                        tvm::ObjectPtrEqual> *itervar_map);
+  // Instantiation of pure functions.
+  bool EnterItervar_(Var var, int64_t length, AnnotationType ann_type) {
+    return true;
+  }
+  void ExitItervar_() {}
+  void EnterMem_(Var buffer_var, PrimExpr index) {}
+  void ExitMem_() {}
+ private:
+  const std::unordered_map<Var, ItervarFeature, tvm::ObjectPtrHash,
+                           tvm::ObjectPtrEqual> *itervar_map_;
 };
 
 void GetLSTMFeature(const Stmt& stmt, bool add_stats, std::vector<char> *data);
