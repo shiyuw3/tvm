@@ -42,6 +42,8 @@
 #include "search_policy/utils.h"
 #include "utils.h"
 
+#define ENCODE_SUFFIX ("_foo_")
+
 namespace tvm {
 namespace auto_scheduler {
 
@@ -226,7 +228,7 @@ bool TouchExtractor::EnterItervar_(
   // Use static index to ensure that there are no duplicate var names.
   std::string var_name = var.get()->name_hint;
   std::string new_name =
-      var_name + "_" + std::to_string(var_counter_[var_name]++);
+      var_name + ENCODE_SUFFIX + std::to_string(var_counter_[var_name]++);
   itervar_stack_.push_back(Var(new_name));
   topdown_product_ *= length;
   itervar_map.insert(
@@ -316,7 +318,8 @@ void TouchExtractor::ExitItervar_() {
 
 void TouchExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
   std::string name = buffer_var.get()->name_hint;
-  TouchedBuffer buf = name + "_" + std::to_string(buffer_counter_[name]++);
+  TouchedBuffer buf =
+      name + ENCODE_SUFFIX + std::to_string(buffer_counter_[name]++);
 
   // extract touch pattern from index
   IndexParser parser;
@@ -455,7 +458,7 @@ bool ComputeTensorExtractor::EnterItervar_(Var var, int64_t length,
 
   std::string var_name = var.get()->name_hint;
   std::string new_name =
-      var_name + "_" + std::to_string(var_counter_[var_name]++);
+      var_name + ENCODE_SUFFIX + std::to_string(var_counter_[var_name]++);
 
   auto touch_fea_iter = itervar_map_->find(new_name);
   ICHECK(touch_fea_iter != itervar_map_->end());
@@ -500,7 +503,7 @@ bool ComputeTensorExtractor::EnterItervar_(Var var, int64_t length,
       // attach the index during touch feature extraction), we should check
       // duplicate buffer names.
       std::string buf_name = kv.first;
-      std::string raw_name = buf_name.substr(0, buf_name.find("_"));
+      std::string raw_name = buf_name.substr(0, buf_name.find(ENCODE_SUFFIX));
 
       if (touch_bufs.find(raw_name) == touch_bufs.end()) {
         node->additional.push_back(static_cast<float>(kv.second.stride));
@@ -529,7 +532,8 @@ void ComputeTensorExtractor::ExitItervar_() {
 
 void ComputeTensorExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
   std::string name = buffer_var.get()->name_hint;
-  TouchedBuffer buf = name + "_" + std::to_string(buffer_counter_[name]++);
+  TouchedBuffer buf =
+      name + ENCODE_SUFFIX + std::to_string(buffer_counter_[name]++);
 
   std::shared_ptr<Tree> node = std::make_shared<Tree>(buf);
   IndexvarCollector collector;
@@ -547,9 +551,9 @@ void ComputeTensorExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
       bool pushed = false;
       for (auto child : iter->get()->children) {
         std::string buf_name = child.get()->name;
-        std::string raw_name = buf_name.substr(0, buf_name.find("_"));
+        std::string raw_name = buf_name.substr(0, buf_name.find(ENCODE_SUFFIX));
         // Compare raw buffer name.
-        if (raw_name == buf.substr(0, buf.find("_"))) {
+        if (raw_name == buf.substr(0, buf.find(ENCODE_SUFFIX))) {
           pushed = true;
           break;
         }
@@ -590,7 +594,7 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
 
   std::string var_name = var.get()->name_hint;
   std::string new_name =
-      var_name + "_" + std::to_string(var_counter_[var_name]++);
+      var_name + ENCODE_SUFFIX + std::to_string(var_counter_[var_name]++);
 
   auto touch_fea_iter = itervar_map_->find(new_name);
   ICHECK(touch_fea_iter != itervar_map_->end());
@@ -639,8 +643,11 @@ int DFSSerialize(std::shared_ptr<const Tree> root,
 
   int idx = static_cast<int>(children->size());
   children->push_back(node_children);
-  names->push_back(root->name);
   additionals->push_back(root->additional);
+
+  std::string name = root->name;
+  std::string raw_name = name.substr(0, name.find(ENCODE_SUFFIX));
+  names->push_back(raw_name);
 
   return idx;
 }
@@ -648,10 +655,7 @@ int DFSSerialize(std::shared_ptr<const Tree> root,
 void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
                     std::vector<char> *data) {
   std::shared_ptr<Tree> cte_root = std::make_shared<Tree>("cte_root");
-  std::shared_ptr<Tree> lte_root = std::make_shared<Tree>("lte_root");
-  // ASTExtractor extractor;
   ComputeTensorExtractor cte;
-  LoopTensorExtractor lte;
 
   if (add_stats) {
     TouchExtractor touch_ext;
@@ -685,13 +689,9 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
 
     // Extract compute tensor.
     cte.Extract(stmt, cte_root, &buf2name, &touch_ext.itervar_map);
-    // Extract loop tensor.
-    lte.Extract(stmt, lte_root, &touch_ext.itervar_map);
   } else {
     // Extract compute tensor.
     cte.Extract(stmt, cte_root, nullptr, nullptr);
-    // Extract loop tensor.
-    lte.Extract(stmt, lte_root, nullptr);
   }
 
   // serialize tree structure for front end
