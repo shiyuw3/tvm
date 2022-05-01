@@ -458,10 +458,7 @@ bool ComputeTensorExtractor::EnterItervar_(Var var, int64_t length,
       var_name + "_" + std::to_string(var_counter_[var_name]++);
 
   auto touch_fea_iter = itervar_map_->find(new_name);
-  if (touch_fea_iter == itervar_map_->end()) {
-    LOG(FATAL) << "Var not found in itervar_map_!";
-    return false;
-  }
+  ICHECK(touch_fea_iter != itervar_map_->end());
 
   std::shared_ptr<Tree> node = std::make_shared<Tree>(new_name);
   const ItervarFeature *touch_fea = &touch_fea_iter->second;
@@ -477,6 +474,44 @@ bool ComputeTensorExtractor::EnterItervar_(Var var, int64_t length,
   // one hot annotation
   for (int i = 0; i < kNum; i++) {
     node->additional.push_back(static_cast<float>(i == touch_fea->ann));
+  }
+
+  // Check if this itervar is the innermost that has memory access.
+  bool found = false;
+  for (auto kv : (*buf2name_)) {
+    if (kv.second == new_name) {
+      found = true;
+      break;
+    }
+  }
+
+  // If it is, push some additional features.
+  if (found) {
+    // Arithmetic operations.
+    node->additional.push_back(static_cast<float>(touch_fea->add_ct));
+    node->additional.push_back(static_cast<float>(touch_fea->mul_ct));
+    node->additional.push_back(static_cast<float>(touch_fea->div_ct));
+    node->additional.push_back(static_cast<float>(touch_fea->bit_ct));
+
+    std::set<std::string> touch_bufs;
+    for (auto kv : touch_fea->touch_feature) {
+      // Since the mapped touched buffer might be the same with different
+      // attached index (e.g. A_0, A_1, they are actually the same buffer, we
+      // attach the index during touch feature extraction), we should check
+      // duplicate buffer names.
+      std::string buf_name = kv.first;
+      std::string raw_name = buf_name.substr(0, buf_name.find("_"));
+
+      if (touch_bufs.find(raw_name) == touch_bufs.end()) {
+        node->additional.push_back(static_cast<float>(kv.second.stride));
+        node->additional.push_back(static_cast<float>(kv.second.mod));
+        node->additional.push_back(static_cast<float>(kv.second.count));
+        node->additional.push_back(static_cast<float>(kv.second.reuse));
+        node->additional.push_back(static_cast<float>(kv.second.thread_count));
+        node->additional.push_back(static_cast<float>(kv.second.thread_reuse));
+        touch_bufs.insert(raw_name);
+      }
+    }
   }
 
   // add itervar as child
@@ -523,6 +558,7 @@ void ComputeTensorExtractor::EnterMem_(Var buffer_var, PrimExpr index) {
       if (!pushed) {
         iter->get()->children.push_back(node);
       }
+
       break;
     }
   }
@@ -557,10 +593,7 @@ bool LoopTensorExtractor::EnterItervar_(Var var, int64_t length,
       var_name + "_" + std::to_string(var_counter_[var_name]++);
 
   auto touch_fea_iter = itervar_map_->find(new_name);
-  if (touch_fea_iter == itervar_map_->end()) {
-    LOG(FATAL) << "Var not found in itervar_map_!";
-    return false;
-  }
+  ICHECK(touch_fea_iter != itervar_map_->end());
 
   std::shared_ptr<Tree> node = std::make_shared<Tree>(new_name);
   const ItervarFeature *touch_fea = &touch_fea_iter->second;

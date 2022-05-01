@@ -24,7 +24,8 @@ from . import _ffi_api
 
 _vocabulary = {}
 MAX_NUM_CHILDREN = 20
-MAX_DIM_ADDITIONAL = 24
+# MAX_DIM_ADDITIONAL = 24
+MAX_DIM_ADDITIONAL = 40
 
 def unpack_lstm_feature(byte_arr: bytearray, take_log: Optional[bool] = None, keep_name: Optional[bool] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Unpack the flatten feature (in byte array format) from c++
