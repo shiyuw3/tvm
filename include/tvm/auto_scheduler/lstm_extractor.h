@@ -125,6 +125,9 @@ struct ItervarFeature {
   int add_ct{0};
   int mul_ct{0};
   int div_ct{0};
+  // Bitwise operations, e.g. floordiv/floormod, which will be simplified to
+  // shift/and operations.
+  int bit_ct{0};
 
   // Memory Touch Feature
   std::unordered_map<TouchedBuffer, TouchPattern> touch_feature;
@@ -169,37 +172,37 @@ class TouchExtractor : public FeatureVisitor {
 
   // arithmetic stats
   void VisitExpr_(const AddNode* op) final {
-    if (op->dtype.is_float()) {
-      itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
-    }
+    itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const SubNode* op) final {
-    if (op->dtype.is_float()) {
-      itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
-    }
+    itervar_map[itervar_stack_.back().get()->name_hint].add_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const MulNode* op) final {
-    if (op->dtype.is_float()) {
-      itervar_map[itervar_stack_.back().get()->name_hint].mul_ct++;
-    }
+    itervar_map[itervar_stack_.back().get()->name_hint].mul_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const DivNode* op) final {
-    if (op->dtype.is_float()) {
-      itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
-    }
+    itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
   void VisitExpr_(const ModNode* op) final {
-    if (op->dtype.is_float()) {
-      itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
-    }
+    itervar_map[itervar_stack_.back().get()->name_hint].div_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const FloorDivNode* op) final {
+    itervar_map[itervar_stack_.back().get()->name_hint].bit_ct++;
+    FeatureVisitor::VisitExpr_(op);
+  }
+
+  void VisitExpr_(const FloorModNode* op) final {
+    itervar_map[itervar_stack_.back().get()->name_hint].bit_ct++;
     FeatureVisitor::VisitExpr_(op);
   }
 
@@ -236,11 +239,15 @@ class Tree {
   std::vector<float> additional;
 };
 
-// collect all index vars from a buffer index
-// Note: Since the IndexvarCollector inherited from IRVisitor in original
-// implementation, while IRVisitor is removed in current TVM version. We
-// chose to follow the behavior of another class IndexParser with the same
-// inheritance.
+// Collect all index vars from a buffer index.
+// Note:
+// (1) Since the IndexvarCollector inherited from IRVisitor in original
+//     implementation, while IRVisitor is removed in current TVM version. We
+//     chose to follow the behavior of another class IndexParser with the same
+//     inheritance.
+// (2) This is a simplified index extractor only recording index var, to support
+//     detailed index extractor (could recover the exact access pattern) in the
+//     future.
 class IndexvarCollector: public ExprVisitor {
  public:
   void Collect(PrimExpr expr) {
