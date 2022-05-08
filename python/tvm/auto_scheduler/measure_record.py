@@ -244,12 +244,16 @@ def load_record(filename, idx, workload_key=None, target=None, include_compatibl
     # memory use.
     log_reader = RecordReader(filename)
     iter_idx = 0
+    ret_inp = None
+    ret_res = None
     for inp, res in log_reader:
         if iter_idx == idx:
+            ret_inp = inp
+            ret_res = res
             break
         iter_idx += 1
 
-    return inp, res
+    return ret_inp, ret_res
 
 
 def load_best_record(filename, workload_key=None, target=None, include_compatible=False):

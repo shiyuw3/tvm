@@ -23,9 +23,10 @@ from .loop_state import State, StateObject
 from . import _ffi_api
 
 _vocabulary = {}
+MAX_NUM_TREE = 40
 MAX_NUM_CHILDREN = 20
 # MAX_DIM_ADDITIONAL = 24
-MAX_DIM_ADDITIONAL = 40
+MAX_DIM_ADDITIONAL = 64
 
 def unpack_lstm_feature(byte_arr: bytearray, take_log: Optional[bool] = None, keep_name: Optional[bool] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Unpack the flatten feature (in byte array format) from c++
@@ -66,21 +67,23 @@ def unpack_lstm_feature(byte_arr: bytearray, take_log: Optional[bool] = None, ke
 
     # copy children relation to numpy array (with padding)
     # children_np = np.empty((n_tree, MAX_NUM_CHILDREN + 1), dtype=np.int16)
-    children_np = np.zeros((n_tree, MAX_NUM_CHILDREN + 1), dtype=np.int16)
+    children_np = np.zeros((MAX_NUM_TREE, MAX_NUM_CHILDREN + 1), dtype=np.int16)
     for i, chi in enumerate(children):
         n_chi = len(chi)
         children_np[i, 0] = n_chi
         children_np[i, 1 : (1 + n_chi)] = chi
 
     # transform string name to integer index
-    emb_idx_np = np.empty((n_tree,), dtype=object if keep_name else np.int16)
+    # emb_idx_np = np.zeros((n_tree, ), dtype=object if keep_name else np.int16)
+    emb_idx_np = np.zeros((MAX_NUM_TREE, ), dtype=object if keep_name else np.int16)
     for i, name in enumerate(names):
         if name not in _vocabulary:
             _vocabulary[name] = len(_vocabulary)
         emb_idx_np[i] = (name if keep_name else _vocabulary[name])
 
     # copy additional feature to numpy array (with padding)
-    add_feas_np = np.zeros((n_tree, MAX_DIM_ADDITIONAL), dtype=np.float32)
+    # add_feas_np = np.zeros((n_tree, MAX_DIM_ADDITIONAL), dtype=np.float32)
+    add_feas_np = np.zeros((MAX_NUM_TREE, MAX_DIM_ADDITIONAL), dtype=np.float32)
     for i, fea in enumerate(add_feas):
         add_feas_np[i, : addfea_nums[i]] = fea
 
