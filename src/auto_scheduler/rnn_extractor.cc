@@ -31,7 +31,7 @@
 #include <tvm/tir/transform.h>
 #include <tvm/tir/op_attr_types.h>
 
-#include <tvm/auto_scheduler/lstm_extractor.h>
+#include <tvm/auto_scheduler/rnn_extractor.h>
 
 #include <algorithm>
 #include <cmath>
@@ -652,8 +652,8 @@ int DFSSerialize(std::shared_ptr<const Tree> root,
   return idx;
 }
 
-void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
-                    std::vector<char> *data) {
+void GetRNNFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
+                   std::vector<char> *data) {
   std::shared_ptr<Tree> cte_root = std::make_shared<Tree>("cte_root");
   ComputeTensorExtractor cte;
 
@@ -755,9 +755,9 @@ void GetLSTMFeature(const Stmt& stmt, int cache_line_size, bool add_stats,
   }
 }
 
-void GetLSTMFeatureFromState(const SearchTask& task, const State& state,
-                             std::vector<char>* feature,
-                             std::atomic<int>* error_ct) {
+void GetRNNFeatureFromState(const SearchTask& task, const State& state,
+                            std::vector<char>* feature,
+                            std::atomic<int>* error_ct) {
   te::Schedule sch;
   Array<te::Tensor> tensors;
 
@@ -817,7 +817,7 @@ void GetLSTMFeatureFromState(const SearchTask& task, const State& state,
             Array<tvm::transform::Pass>{tir::transform::Simplify()});
     mod = optimize(std::move(mod));
     PrimFunc prim_func = Downcast<PrimFunc>(mod->Lookup(name));
-    GetLSTMFeature(
+    GetRNNFeature(
         /* stmt = */prim_func->body,
         /* cahce_line_size = */task->hardware_params->cache_line_bytes,
         /* add_stats = */true,
@@ -829,7 +829,7 @@ void GetLSTMFeatureFromState(const SearchTask& task, const State& state,
   }
 }
 
-void GetLSTMFeaturesFromStates(
+void GetRNNFeaturesFromStates(
     const SearchTask& task, const Array<State>& states,
     int skip_first_n_feature_extraction,
     std::vector<std::vector<char>>* features) {
@@ -840,7 +840,7 @@ void GetLSTMFeaturesFromStates(
   support::parallel_for(
       skip_first_n_feature_extraction, states.size(),
       [&task, &states, &features, &error_ct](int i) {
-        GetLSTMFeatureFromState(task, states[i], &(*features)[i], &error_ct);
+        GetRNNFeatureFromState(task, states[i], &(*features)[i], &error_ct);
       });
 }
 
@@ -929,17 +929,17 @@ TVMByteArray SerializeFeatures(std::vector<std::vector<char>>&& features,
 
 
 // Return feature buffer given the state and search task.
-TVM_REGISTER_GLOBAL("auto_scheduler.GetLSTMFeatureFromState")
+TVM_REGISTER_GLOBAL("auto_scheduler.GetRNNFeatureFromState")
     .set_body([](TVMArgs args, TVMRetValue* ret) {
       SearchTask task = args[0];
       State state = args[1];
       std::vector<char> features;
-      GetLSTMFeatureFromState(task, state, &features, /* error_ct = */nullptr);
+      GetRNNFeatureFromState(task, state, &features, /* error_ct = */nullptr);
       *ret = TVMByteArray{features.data(), features.size()};
     });
 
 // Return feature buffer given array of states and search task.
-TVM_REGISTER_GLOBAL("auto_scheduler.GetLSTMFeaturesFromStates")
+TVM_REGISTER_GLOBAL("auto_scheduler.GetRNNFeaturesFromStates")
     .set_body([](TVMArgs args, TVMRetValue* ret) {
       SearchTask task = args[0];
       Array<State> states = args[1];
@@ -948,7 +948,7 @@ TVM_REGISTER_GLOBAL("auto_scheduler.GetLSTMFeaturesFromStates")
       std::vector<float> normalized_throughputs;
       std::vector<int> task_ids;
 
-      GetLSTMFeaturesFromStates(task, states, 0, &features);
+      GetRNNFeaturesFromStates(task, states, 0, &features);
 
       std::vector<char> byte_data;
       *ret = SerializeFeatures(std::move(features),

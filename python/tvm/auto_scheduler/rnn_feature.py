@@ -28,7 +28,7 @@ MAX_NUM_CHILDREN = 20
 # MAX_DIM_ADDITIONAL = 24
 MAX_DIM_ADDITIONAL = 64
 
-def unpack_lstm_feature(byte_arr: bytearray, take_log: Optional[bool] = None, keep_name: Optional[bool] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def unpack_rnn_feature(byte_arr: bytearray, take_log: Optional[bool] = None, keep_name: Optional[bool] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Unpack the flatten feature (in byte array format) from c++
     """
     n_tree, offset_child, offset_names, offset_addfea, = \
@@ -93,15 +93,15 @@ def unpack_lstm_feature(byte_arr: bytearray, take_log: Optional[bool] = None, ke
 
     return children_np, emb_idx_np, add_feas_np
 
-def get_lstm_feature_from_state(
+def get_rnn_feature_from_state(
     task: "SearchTask", state: [Union[State, StateObject]]
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """ Get LSTM feature from the given search task and state.
+    """ Get rnn feature from the given search task and state.
     """
     if isinstance(state, State):
         state_object = state.state_object
     elif isinstance(state, StateObject):
         state_object = state
-    byte_arr = _ffi_api.GetLSTMFeatureFromState(task, state)
-    return unpack_lstm_feature(byte_arr)
+    byte_arr = _ffi_api.GetRNNFeatureFromState(task, state)
+    return unpack_rnn_feature(byte_arr)
 

@@ -17,8 +17,8 @@
  * under the License.
  */
 
-#ifndef TVM_AUTO_SCHEDULER_LSTM_EXTRACTOR_H_
-#define TVM_AUTO_SCHEDULER_LSTM_EXTRACTOR_H_
+#ifndef TVM_AUTO_SCHEDULER_RNN_EXTRACTOR_H_
+#define TVM_AUTO_SCHEDULER_RNN_EXTRACTOR_H_
 
 #include <tvm/tir/stmt_functor.h>
 
@@ -331,9 +331,9 @@ class LoopTensorExtractor : public FeatureVisitor {
   const std::unordered_map<std::string, ItervarFeature> *itervar_map_;
 };
 
-void GetLSTMFeature(const Stmt& stmt, bool add_stats, std::vector<char> *data);
+void GetRNNFeature(const Stmt& stmt, bool add_stats, std::vector<char> *data);
 
 }  // namespace auto_scheduler
 }  // namespace tvm
 
-#endif  // TVM_AUTO_SCHEDULER_LSTM_EXTRACTOR_H_
+#endif  // TVM_AUTO_SCHEDULER_RNN_EXTRACTOR_H_

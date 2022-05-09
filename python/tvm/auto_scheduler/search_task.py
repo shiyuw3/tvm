@@ -34,7 +34,7 @@ from .workload_registry import make_workload_key
 from .compute_dag import ComputeDAG, LayoutRewriteOption
 from .cost_model import XGBModel
 from .search_policy import SketchPolicy
-from .lstm_feature import get_lstm_feature_from_state
+from .rnn_feature import get_rnn_feature_from_state
 from .workload_registry import WORKLOAD_FUNC_REGISTRY, register_workload_tensors
 from . import _ffi_api
 
@@ -498,18 +498,15 @@ class SearchTask(Object):
 
         _ffi_api.AutoSchedule(search_policy, tuning_options)
 
-    def extract_lstm_feature(self, log_file, idx, include_compatible=False):
-        """ Extract LSTM feature from the given log file and index.
+    def extract_rnn_feature(self, log_file, idx):
+        """ Extract rnn feature from the given log file and index.
         """
-        inp, _ = load_record(
-            log_file, idx, self.workload_key, include_compatible=include_compatible
-        )
+        inp, _ = load_record(log_file, idx)
         if inp is None:
             raise RuntimeError(
                 "Cannot find any valid schedule for %s in file %s" % (self.workload_key, log_file)
             )
-        return get_lstm_feature_from_state(self, inp.state)
-
+        return get_rnn_feature_from_state(self, inp.state)
 
     def apply(self, log_file, idx, include_compatible=False, layout_rewrite_option=None):
         """Apply the history with given index from a log file and return the schedule.
