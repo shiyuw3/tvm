@@ -177,6 +177,26 @@ class SearchPolicyNode : public Object {
   static constexpr const char* _type_key = "auto_scheduler.SearchPolicy";
   TVM_DECLARE_BASE_OBJECT_INFO(SearchPolicyNode, Object);
 
+
+  // Profiling helper functions.
+  float ComputeStdFromVector(const std::vector<float>& data);
+
+  std::vector<float> ExtractProfileResult(const std::string& parse_script,
+                                          const std::string& prof_file);
+
+  std::string ExtractSystemCmdOutput(const char* cmd);
+
+  int GetLogLineNum(const char* log_file);
+
+  std::vector<Array<MeasureResult>> Profile(const SearchTask& task,
+                                            const Array<MeasureInput>& inputs,
+                                            int batch_size = -1);
+
+  void RunProfiler(const std::string& exec_script, const std::string& log_file,
+                   const std::string& prof_file, int idx);
+
+  std::vector<std::string> SplitStrByNewLine(const std::string& str);
+
  protected:
   /*!
    * \brief The set of already measured states.

@@ -35,6 +35,7 @@ from .compute_dag import ComputeDAG, LayoutRewriteOption
 from .cost_model import XGBModel
 from .search_policy import SketchPolicy
 from .rnn_feature import get_rnn_feature_from_state
+from .feature import get_per_store_features_from_measure_pairs, get_per_store_features_from_states
 from .workload_registry import WORKLOAD_FUNC_REGISTRY, register_workload_tensors
 from . import _ffi_api
 
@@ -508,6 +509,9 @@ class SearchTask(Object):
             )
         return get_rnn_feature_from_state(self, inp.state)
 
+    def extract_xgb_features(self, states):
+        return get_per_store_features_from_states(states, self)
+
     def apply(self, log_file, idx, include_compatible=False, layout_rewrite_option=None):
         """Apply the history with given index from a log file and return the schedule.
 
@@ -527,9 +531,7 @@ class SearchTask(Object):
         -------
             A `te.Schedule` and the a list of `te.Tensor` to be used in `tvm.lower` or `tvm.build`.
         """
-        inp, _ = load_record(
-            log_file, idx, self.workload_key, include_compatible=include_compatible
-        )
+        inp, _ = load_record(log_file, idx, self.workload_key, include_compatible=include_compatible)
         if inp is None:
             raise RuntimeError(
                 "Cannot find any valid schedule for %s in file %s" % (self.workload_key, log_file)

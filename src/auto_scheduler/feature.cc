@@ -1438,6 +1438,7 @@ void GetPerStoreFeaturesFromMeasurePairs(const Array<MeasureInput>& inputs,
   task_ids->reserve(inputs.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
     float cost = static_cast<float>(FloatArrayMean(results[i]->costs));
+
     const std::string& workload_key = inputs[i]->task->workload_key;
     SearchTask task;
 

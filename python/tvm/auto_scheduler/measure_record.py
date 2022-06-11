@@ -213,7 +213,7 @@ def save_records(filename, inputs, results):
     _ffi_api.SaveRecords(filename, inputs, results)
 
 
-def load_record(filename, idx):
+def load_record(filename, idx, workload_key=None, target=None, include_compatible=False):
     # The loop to access record of given index might seem stupid, since record
     # reader is not indexable, Guess that the design comes from consideration of
     # memory use.

@@ -70,11 +70,15 @@ static InitThreadBind init_thread_bind;
 TVM_REGISTER_NODE_TYPE(SketchPolicyNode);
 
 SketchPolicy::SketchPolicy(SearchTask task, CostModel program_cost_model,
+                           Array<CostModel> profile_cost_models,
+                           int num_profile_metrics,
                            Map<String, ObjectRef> params, int seed, int verbose,
                            Optional<Array<SearchCallback>> init_search_callbacks) {
   auto node = make_object<SketchPolicyNode>();
   node->search_task = std::move(task);
   node->program_cost_model = std::move(program_cost_model);
+  node->profile_cost_models = std::move(profile_cost_models);
+  node->num_profile_metrics = num_profile_metrics;
   node->rand_gen = std::mt19937(seed);
   node->params = std::move(params);
   node->verbose = verbose;
@@ -176,6 +180,7 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
     Array<State> best_states, random_states;
     Array<MeasureInput> inputs;
     Array<MeasureResult> results;
+    std::vector<Array<MeasureResult>> prof_results;
     while (ct < n_trials) {
       if (!inputs.empty()) {
         auto t_begin = std::chrono::high_resolution_clock::now();
@@ -183,6 +188,12 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         // Retrain the cost model before the next search round
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
+
+        int idx = 0;
+        for (CostModel profile_cost_model : profile_cost_models) {
+          profile_cost_model->Update(inputs, prof_results[idx]);
+          ++idx;
+        }
 
         PrintTimeElapsed(t_begin, "training", verbose);
       }
@@ -217,6 +228,8 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       // Measure candidate states
       PrintTitle("Measure", verbose);
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
+      prof_results = Profile(search_task, inputs);
+
       ct += inputs.size();
 
       // Check if reach the early stopping condition
@@ -434,15 +447,39 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
       // Run the cost model to make filter out states that failed to extract features.
       // This may happen due to illegal schedules or the schedules that uses too much
       // memory on GPU.
+      // Throughput cost model.
       std::vector<float> pop_scores;
       pop_scores.reserve(cand_states.size());
+
+      std::vector<std::vector<float>> profile_scores(
+          num_profile_metrics, std::vector<float>(cand_states.size()));
+
       cand_states = search_task->compute_dag.InferBound(cand_states);
       PruneInvalidState(search_task, &cand_states);
+
       program_cost_model->Predict(search_task, cand_states, &pop_scores);
+
+      int idx = 0;
+      for (CostModel profile_cost_model : profile_cost_models) {
+        profile_cost_model->Predict(search_task, cand_states,
+                                    &profile_scores[idx]);
+        ++idx;
+      }
 
       for (size_t i = 0; i < cand_states.size(); i++) {
         const auto state_str = cand_states[i].ToStr();
-        if (pop_scores[i] > -1e10 && explored_state_strs.count(state_str) == 0) {
+
+        // Check profile scores.
+        bool is_profile_valid = true;
+        for (int j = 0; j < num_profile_metrics; ++j) {
+          if (profile_scores[j][i] < -1e10) {
+            is_profile_valid = false;
+            break;
+          }
+        }
+
+        if (is_profile_valid && pop_scores[i] > -1e10 &&
+            explored_state_strs.count(state_str) == 0) {
           explored_state_strs.insert(state_str);
           out_states.push_back(std::move(cand_states[i]));
           unchange_cnt = 0;  // Reset the counter once we found a valid state
@@ -524,6 +561,10 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
   pop_selection_probs.reserve(population);
   std::uniform_real_distribution<> dis(0.0, 1.0);
 
+  std::vector<std::vector<float>> profile_scores(
+      num_profile_metrics, std::vector<float>(population));
+  std::vector<float> pop_profile_scores(num_profile_metrics, 0.0f);
+
   // mutation rules
   int mutation_success_ct, mutation_fail_ct;
   mutation_success_ct = mutation_fail_ct = 0;
@@ -539,28 +580,60 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
     // Maintain the heap
     *pnow = search_task->compute_dag.InferBound(*pnow);
     PruneInvalidState(search_task, pnow);
+
     program_cost_model->Predict(search_task, *pnow, &pop_scores);
+
+    // Predict profile results.
+    int idx = 0;
+    for (CostModel profile_cost_model : profile_cost_models) {
+      profile_cost_model->Predict(search_task, *pnow, &profile_scores[idx]);
+      ++idx;
+    }
 
     for (size_t i = 0; i < pnow->size(); ++i) {
       const State& state = (*pnow)[i];
       std::string state_str = state.ToStr();
 
+      for (int prof_idx = 0; prof_idx < num_profile_metrics; ++prof_idx) {
+        pop_profile_scores[prof_idx] = profile_scores[prof_idx][i];
+      }
+      float stdev = ComputeStdFromVector(pop_profile_scores);
+      float score = 0.7 * pop_scores[i] + 0.3 * stdev;
+
+#if 0
+      StdCout(verbose) << "GA Iter: " << k;
+      StdCout(verbose) << ", sample " << i
+                       << std::fixed << std::setprecision(4)
+                       << ", predicted throughput: " << pop_scores[i]
+                       << ", predicted profile metrics: ";
+      for (int prof_idx = 0; prof_idx < num_profile_metrics; ++prof_idx) {
+        StdCout(verbose) << std::fixed << std::setprecision(4)
+                         << pop_profile_scores[prof_idx] << " ";
+
+      }
+      StdCout(verbose) << ", stdev: "
+                       << std::fixed << std::setprecision(4) << stdev
+                       << ", score: "
+                       << std::fixed << std::setprecision(4) << score
+                       << "\n";
+#endif
+
       if (in_heap.count(state_str) == 0) {
         if (static_cast<int>(heap.size()) < out_size) {
-          heap.emplace_back((*pnow)[i], pop_scores[i]);
+          heap.emplace_back((*pnow)[i], score);
           std::push_heap(heap.begin(), heap.end(), cmp);
           in_heap.insert(state_str);
-        } else if (pop_scores[i] > heap.front().second) {
+        } else if (score > heap.front().second) {
           std::string old_state_str = heap.front().first.ToStr();
           in_heap.erase(old_state_str);
           in_heap.insert(state_str);
 
           std::pop_heap(heap.begin(), heap.end(), cmp);
-          heap.back() = StateHeapItem(state, pop_scores[i]);
+          heap.back() = StateHeapItem(state, score);
           std::push_heap(heap.begin(), heap.end(), cmp);
         }
-        if (pop_scores[i] > max_score) {
-          max_score = pop_scores[i];
+        if (score > max_score) {
+          max_score = score;
         }
       }
     }
@@ -692,10 +765,15 @@ void PreloadCustomSketchRuleNode::Callback(SearchPolicyNode* policy) {
 }
 
 TVM_REGISTER_GLOBAL("auto_scheduler.SketchPolicy")
-    .set_body_typed([](SearchTask task, CostModel program_cost_model, Map<String, ObjectRef> params,
+    .set_body_typed([](SearchTask task, CostModel program_cost_model,
+                       Array<CostModel> profile_cost_models,
+                       int num_profile_metrics,
+                       Map<String, ObjectRef> params,
                        int seed, int verbose,
                        Optional<Array<SearchCallback>> init_search_callbacks) {
-      return SketchPolicy(task, program_cost_model, params, seed, verbose, init_search_callbacks);
+      return SketchPolicy(task, program_cost_model, profile_cost_models,
+                          num_profile_metrics, params, seed, verbose,
+                          init_search_callbacks);
     });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.SketchPolicyGenerateSketches")

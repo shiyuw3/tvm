@@ -98,6 +98,10 @@ class SketchPolicyNode : public SearchPolicyNode {
  public:
   /*! \brief The cost model to estimate the complete schedules. */
   CostModel program_cost_model;
+  /*! \brief The cost model to estimate profiling results. */
+  Array<CostModel> profile_cost_models;
+  /*! \brief Number of profile metrics to use. */
+  int num_profile_metrics;
   /*! \brief The parameters map for this search policy. */
   Map<String, ObjectRef> params;
   /*! \brief The rules to generate sketches. */
@@ -191,8 +195,12 @@ class SketchPolicy : public SearchPolicy {
    * search.
    * \param init_search_callbacks SearchCallback to be called before schedule search.
    */
-  SketchPolicy(SearchTask task, CostModel program_cost_model, Map<String, ObjectRef> params,
-               int seed, int verbose, Optional<Array<SearchCallback>> init_search_callbacks);
+  SketchPolicy(SearchTask task, CostModel program_cost_model,
+               Array<CostModel> profile_cost_models,
+               int num_profile_metrics,
+               Map<String, ObjectRef> params,
+               int seed, int verbose,
+               Optional<Array<SearchCallback>> init_search_callbacks);
 
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(SketchPolicy, SearchPolicy, SketchPolicyNode);
 };

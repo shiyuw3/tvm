@@ -33,7 +33,7 @@ import random
 
 import tvm._ffi
 from tvm.runtime import Object
-from .cost_model import RandomModel
+from .cost_model import RandomModel, XGBModel
 from . import _ffi_api
 
 
@@ -197,6 +197,8 @@ class SketchPolicy(SearchPolicy):
         self,
         task,
         program_cost_model=RandomModel(),
+        profile_cost_models=None,
+        num_profile_metrics=2,
         params=None,
         seed=None,
         verbose=1,
@@ -209,10 +211,17 @@ class SketchPolicy(SearchPolicy):
                 if key not in params:
                     params[key] = value
 
+        profile_cost_models = []
+
+        for i in range(num_profile_metrics):
+            profile_cost_models.append(XGBModel())
+
         self.__init_handle_by_constructor__(
             _ffi_api.SketchPolicy,
             task,
             program_cost_model,
+            profile_cost_models,
+            num_profile_metrics,
             params,
             seed or random.randint(1, 1 << 30),
             verbose,
