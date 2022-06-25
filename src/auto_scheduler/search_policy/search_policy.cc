@@ -110,6 +110,19 @@ float SearchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
   return std::sqrt(accum / (data.size() - 1));
 }
 
+float SearchPolicyNode::ComputeVarSinglePoint(
+    const std::vector<std::vector<float>>& profile_scores, size_t idx) {
+  float var = 0.0f;
+  for (size_t i = 0; i < profile_scores.size(); ++i) {
+    std::vector<float> scores = profile_scores[i];
+    float sum = std::accumulate(scores.begin(), scores.end(), 0.0f);
+    float before = sum / scores.size();
+    float after = (sum - scores[idx]) / (scores.size() - 1);
+    var += std::fabs(before - after) / profile_scores.size();
+  }
+  return var;
+}
+
 std::vector<float> SearchPolicyNode::ExtractProfileResult(
     const std::string& parse_script,
     const std::string& prof_file) {

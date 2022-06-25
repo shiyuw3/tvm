@@ -181,6 +181,9 @@ class SearchPolicyNode : public Object {
   // Profiling helper functions.
   float ComputeStdFromVector(const std::vector<float>& data);
 
+  float ComputeVarSinglePoint(
+      const std::vector<std::vector<float>>& profile_scores, size_t idx);
+
   std::vector<float> ExtractProfileResult(const std::string& parse_script,
                                           const std::string& prof_file);
 

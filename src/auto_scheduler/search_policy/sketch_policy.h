@@ -140,7 +140,7 @@ class SketchPolicyNode : public SearchPolicyNode {
    * \param out_size The number of expected output states.
    * \return The generated states after evolutionary search.
    */
-  Array<State> EvolutionarySearch(const Array<State>& init_populations, int out_size);
+  Array<State> EvolutionarySearch(const Array<State>& init_populations, int out_size, int iter = 0);
 
   static constexpr const char* _type_key = "auto_scheduler.SketchPolicy";
 
@@ -154,7 +154,8 @@ class SketchPolicyNode : public SearchPolicyNode {
    * \param random_states The picked random states, used as one of the output of this function.
    * \return The best several states generated in this search round.
    */
-  Array<State> SearchOneRound(int num_random_states, Array<State>* random_states = nullptr);
+  Array<State> SearchOneRound(int num_random_states, Array<State>* random_states = nullptr,
+                              int iter = 0);
 
   /*!
    * \brief Pick states from best states and random states with eps-greedy policy.

@@ -200,7 +200,7 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       // Search one round to get promising states
       PrintTitle("Search", verbose);
-      best_states = SearchOneRound(num_random * 3, &random_states);
+      best_states = SearchOneRound(num_random * 3, &random_states, ct);
 
       // Infer bound. This is necessary for computing the correct ToStr() for redundancy check
       best_states = search_task->compute_dag.InferBound(best_states);
@@ -228,6 +228,7 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       // Measure candidate states
       PrintTitle("Measure", verbose);
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
+
       prof_results = Profile(search_task, inputs);
 
       ct += inputs.size();
@@ -294,7 +295,8 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
   return std::make_pair(std::move(inputs), std::move(results));
 }
 
-Array<State> SketchPolicyNode::SearchOneRound(int num_random_states, Array<State>* random_states) {
+Array<State> SketchPolicyNode::SearchOneRound(
+    int num_random_states, Array<State>* random_states, int iter) {
   // Get parameters
   int population = GetIntParam(params, SketchParamKey::EvolutionarySearch::population);
   int num_use_measured = std::min(
@@ -321,7 +323,7 @@ Array<State> SketchPolicyNode::SearchOneRound(int num_random_states, Array<State
   if (num_random_states > 0 && random_states != nullptr) {
     *random_states = RandomSampleStates(init_population, &rand_gen, num_random_states);
   }
-  return EvolutionarySearch(init_population, num_measure_per_iter_ * 2);
+  return EvolutionarySearch(init_population, num_measure_per_iter_ * 2, iter);
 }
 
 Array<State> SketchPolicyNode::GenerateSketches() {
@@ -522,7 +524,7 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 }
 
 Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_population,
-                                                  int out_size) {
+                                                  int out_size, int iter) {
   Array<State> best_states;
   auto tic_begin = std::chrono::high_resolution_clock::now();
 
@@ -563,7 +565,6 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
   std::vector<std::vector<float>> profile_scores(
       num_profile_metrics, std::vector<float>(population));
-  std::vector<float> pop_profile_scores(num_profile_metrics, 0.0f);
 
   // mutation rules
   int mutation_success_ct, mutation_fail_ct;
@@ -594,25 +595,18 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
       const State& state = (*pnow)[i];
       std::string state_str = state.ToStr();
 
-      for (int prof_idx = 0; prof_idx < num_profile_metrics; ++prof_idx) {
-        pop_profile_scores[prof_idx] = profile_scores[prof_idx][i];
-      }
-      float stdev = ComputeStdFromVector(pop_profile_scores);
-      float score = 0.7 * pop_scores[i] + 0.3 * stdev;
+      float var = ComputeVarSinglePoint(profile_scores, i);
+      float weight = 0.5 * std::exp(-1.0 * iter);
+      // Decreasing weight on variance.
+      float score = (1 - weight) * pop_scores[i] + weight * var;
 
 #if 0
       StdCout(verbose) << "GA Iter: " << k;
       StdCout(verbose) << ", sample " << i
                        << std::fixed << std::setprecision(4)
                        << ", predicted throughput: " << pop_scores[i]
-                       << ", predicted profile metrics: ";
-      for (int prof_idx = 0; prof_idx < num_profile_metrics; ++prof_idx) {
-        StdCout(verbose) << std::fixed << std::setprecision(4)
-                         << pop_profile_scores[prof_idx] << " ";
-
-      }
-      StdCout(verbose) << ", stdev: "
-                       << std::fixed << std::setprecision(4) << stdev
+      StdCout(verbose) << ", var contribution: "
+                       << std::fixed << std::setprecision(4) << var
                        << ", score: "
                        << std::fixed << std::setprecision(4) << score
                        << "\n";
