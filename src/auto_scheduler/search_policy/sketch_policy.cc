@@ -229,7 +229,9 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       PrintTitle("Measure", verbose);
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
 
+      auto t_profile = std::chrono::high_resolution_clock::now();
       prof_results = Profile(search_task, inputs);
+      PrintTimeElapsed(t_profile, "profiling", verbose);
 
       ct += inputs.size();
 
