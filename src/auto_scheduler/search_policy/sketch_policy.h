@@ -159,6 +159,8 @@ class SketchPolicyNode : public SearchPolicyNode {
 
   int GetLogLineNum(const char* log_file);
 
+  bool isPGOEnabled() const { return pgo_enable; }
+
   std::vector<Array<MeasureResult>> Profile(const SearchTask& task,
                                             const Array<MeasureInput>& inputs,
                                             int batch_size = -1);
@@ -167,6 +169,13 @@ class SketchPolicyNode : public SearchPolicyNode {
                    const std::string& prof_file, int idx);
 
   std::vector<std::string> SplitStrByNewLine(const std::string& str);
+
+  // Configuration
+  bool pgo_enable = false;
+  int pgo_start_iter_index = 0;
+  int pgo_feat_dim = 0;
+  int pgo_preprocess_alg = 0;
+  int pgo_weight_formula = 0;
 
  private:
   /*!

@@ -158,6 +158,13 @@ SketchPolicy::SketchPolicy(SearchTask task, CostModel program_cost_model,
   }
 
   data_ = std::move(node);
+
+  // Profiling related member variables.
+  node->pgo_enable = strcmp(getenv("PGO_ENABLE"), "1") == 0;
+  node->pgo_start_iter_index = atoi(getenv("PGO_START_ITER_INDEX"));
+  node->pgo_feat_dim = atoi(getenv("PGO_FEAT_DIM"));
+  node->pgo_preprocess_alg = atoi(getenv("PGO_FEAT_DIM"));
+  node->pgo_weight_formula = atoi(getenv("PGO_WEIGHT_FORMULA"));
 }
 
 State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure_per_iter,
@@ -189,10 +196,12 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
 
-        int idx = 0;
-        for (CostModel profile_cost_model : profile_cost_models) {
-          profile_cost_model->Update(inputs, prof_results[idx]);
-          ++idx;
+        if (isPGOEnabled()) {
+          int idx = 0;
+          for (CostModel profile_cost_model : profile_cost_models) {
+            profile_cost_model->Update(inputs, prof_results[idx]);
+            ++idx;
+          }
         }
 
         PrintTimeElapsed(t_begin, "training", verbose);
@@ -230,8 +239,11 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
 
       auto t_profile = std::chrono::high_resolution_clock::now();
-      prof_results = Profile(search_task, inputs);
-      PrintTimeElapsed(t_profile, "profiling", verbose);
+
+      if (isPGOEnabled()) {
+        prof_results = Profile(search_task, inputs);
+        PrintTimeElapsed(t_profile, "profiling", verbose);
+      }
 
       ct += inputs.size();
 
@@ -463,11 +475,13 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 
       program_cost_model->Predict(search_task, cand_states, &pop_scores);
 
-      int idx = 0;
-      for (CostModel profile_cost_model : profile_cost_models) {
-        profile_cost_model->Predict(search_task, cand_states,
-                                    &profile_scores[idx]);
-        ++idx;
+      if (isPGOEnabled()) {
+        int idx = 0;
+        for (CostModel profile_cost_model : profile_cost_models) {
+          profile_cost_model->Predict(search_task, cand_states,
+                                      &profile_scores[idx]);
+          ++idx;
+        }
       }
 
       for (size_t i = 0; i < cand_states.size(); i++) {
@@ -475,10 +489,13 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 
         // Check profile scores.
         bool is_profile_valid = true;
-        for (int j = 0; j < num_profile_metrics; ++j) {
-          if (profile_scores[j][i] < -1e10) {
-            is_profile_valid = false;
-            break;
+
+        if (isPGOEnabled()) {
+          for (int j = 0; j < num_profile_metrics; ++j) {
+            if (profile_scores[j][i] < -1e10) {
+              is_profile_valid = false;
+              break;
+            }
           }
         }
 
@@ -587,20 +604,27 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
     program_cost_model->Predict(search_task, *pnow, &pop_scores);
 
     // Predict profile results.
-    int idx = 0;
-    for (CostModel profile_cost_model : profile_cost_models) {
-      profile_cost_model->Predict(search_task, *pnow, &profile_scores[idx]);
-      ++idx;
+    if (isPGOEnabled()) {
+      int idx = 0;
+      for (CostModel profile_cost_model : profile_cost_models) {
+        profile_cost_model->Predict(search_task, *pnow, &profile_scores[idx]);
+        ++idx;
+      }
     }
 
     for (size_t i = 0; i < pnow->size(); ++i) {
       const State& state = (*pnow)[i];
       std::string state_str = state.ToStr();
 
-      float var = ComputeVarSinglePoint(profile_scores, i);
-      float weight = 0.5 * std::exp(-1.0 * iter);
-      // Decreasing weight on variance.
-      float score = (1 - weight) * pop_scores[i] + weight * var;
+      float score;
+      if (isPGOEnabled()) {
+        float var = ComputeVarSinglePoint(profile_scores, i);
+        float weight = 0.5 * std::exp(-1.0 * iter);
+        // Decreasing weight on variance.
+        score = (1 - weight) * pop_scores[i] + weight * var;
+      } else {
+        score = pop_scores[i];
+      }
 
 #if 0
       StdCout(verbose) << "GA Iter: " << k;
