@@ -146,6 +146,28 @@ class SketchPolicyNode : public SearchPolicyNode {
 
   TVM_DECLARE_FINAL_OBJECT_INFO(SketchPolicyNode, SearchPolicyNode);
 
+  // Profiling helper functions.
+  float ComputeStdFromVector(const std::vector<float>& data);
+
+  float ComputeVarSinglePoint(
+      const std::vector<std::vector<float>>& profile_scores, size_t idx);
+
+  std::vector<float> ExtractProfileResult(const std::string& parse_script,
+                                          const std::string& prof_file);
+
+  std::string ExtractSystemCmdOutput(const char* cmd);
+
+  int GetLogLineNum(const char* log_file);
+
+  std::vector<Array<MeasureResult>> Profile(const SearchTask& task,
+                                            const Array<MeasureInput>& inputs,
+                                            int batch_size = -1);
+
+  void RunProfiler(const std::string& exec_script, const std::string& log_file,
+                   const std::string& prof_file, int idx);
+
+  std::vector<std::string> SplitStrByNewLine(const std::string& str);
+
  private:
   /*!
    * \brief Run one round of the search pipeline.
