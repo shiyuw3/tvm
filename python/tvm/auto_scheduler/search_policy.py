@@ -198,7 +198,6 @@ class SketchPolicy(SearchPolicy):
         task,
         program_cost_model=RandomModel(),
         profile_cost_models=None,
-        num_profile_metrics=2,
         params=None,
         seed=None,
         verbose=1,
@@ -212,7 +211,7 @@ class SketchPolicy(SearchPolicy):
                     params[key] = value
 
         profile_cost_models = []
-
+        num_profile_metrics = int(os.getenv("PGO_FEAT_DIM"))
         for i in range(num_profile_metrics):
             profile_cost_models.append(XGBModel())
 
