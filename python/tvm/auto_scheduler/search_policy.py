@@ -30,10 +30,12 @@ Programs for Deep Learning." (OSDI 2020).
 """
 
 import random
+import os
 
 import tvm._ffi
 from tvm.runtime import Object
 from .cost_model import RandomModel, XGBModel
+from .measure_record import RecordReader
 from . import _ffi_api
 
 
@@ -211,7 +213,12 @@ class SketchPolicy(SearchPolicy):
                     params[key] = value
 
         profile_cost_models = []
-        num_profile_metrics = int(os.getenv("PGO_FEAT_DIM"))
+
+        num_profile_metrics = 0
+        pgo_feat_dim = os.getenv("PGO_FEAT_DIM")
+        if pgo_feat_dim:
+            num_profile_metrics = int(pgo_feat_dim)
+
         for i in range(num_profile_metrics):
             profile_cost_models.append(XGBModel())
 
@@ -281,3 +288,8 @@ class SketchPolicy(SearchPolicy):
         """
         states = _ffi_api.SketchPolicyEvolutionarySearch(self, init_populations, out_size)
         return states
+
+    def update_profile_models_from_dir(self, log_dir, log_file):
+        inputs, _ = RecordReader(log_file).read_lines()
+        _ffi_api.SketchPolicyUpdateProfileModelsFromDir(self, inputs, log_dir)
+

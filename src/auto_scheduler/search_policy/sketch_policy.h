@@ -147,6 +147,8 @@ class SketchPolicyNode : public SearchPolicyNode {
   TVM_DECLARE_FINAL_OBJECT_INFO(SketchPolicyNode, SearchPolicyNode);
 
   // Profiling helper functions.
+  void AnalyzeMetrics();
+
   float ComputeStdFromVector(const std::vector<float>& data);
 
   float ComputeVarSinglePoint(
@@ -159,16 +161,21 @@ class SketchPolicyNode : public SearchPolicyNode {
 
   int GetLogLineNum(const char* log_file);
 
-  bool isPGOEnabled() const { return pgo_enable; }
+  bool IsPGOEnabled() const { return pgo_enable; }
 
   std::vector<Array<MeasureResult>> Profile(const SearchTask& task,
                                             const Array<MeasureInput>& inputs,
                                             int batch_size = -1);
 
+  void ProfileConfigLogging();
+
   void RunProfiler(const std::string& exec_script, const std::string& log_file,
                    const std::string& prof_file, int idx);
 
   std::vector<std::string> SplitStrByNewLine(const std::string& str);
+
+  void UpdateProfileModelsFromDir(const Array<MeasureInput>& inputs,
+                                  const std::string& log_dir);
 
   // Configuration
   bool pgo_enable = false;
@@ -176,6 +183,7 @@ class SketchPolicyNode : public SearchPolicyNode {
   int pgo_feat_dim = 0;
   int pgo_preprocess_alg = 0;
   int pgo_weight_formula = 0;
+  char* pgo_wkl_name = nullptr;
 
  private:
   /*!

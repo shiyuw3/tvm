@@ -157,14 +157,17 @@ SketchPolicy::SketchPolicy(SearchTask task, CostModel program_cost_model,
     LOG(FATAL) << "No default sketch rules for target: " << task->target;
   }
 
-  data_ = std::move(node);
-
   // Profiling related member variables.
-  node->pgo_enable = strcmp(getenv("PGO_ENABLE"), "1") == 0;
-  node->pgo_start_iter_index = atoi(getenv("PGO_START_ITER_INDEX"));
-  node->pgo_feat_dim = atoi(getenv("PGO_FEAT_DIM"));
-  node->pgo_preprocess_alg = atoi(getenv("PGO_FEAT_DIM"));
-  node->pgo_weight_formula = atoi(getenv("PGO_WEIGHT_FORMULA"));
+  node->pgo_enable = getenv("PGO_ENABLE") != nullptr ? (strcmp(getenv("PGO_ENABLE"), "1") == 0) : false;
+  node->pgo_start_iter_index = getenv("PGO_START_ITER_INDEX") != nullptr ?  atoi(getenv("PGO_START_ITER_INDEX")) : 0;
+  node->pgo_feat_dim = getenv("PGO_FEAT_DIM") != nullptr ? atoi(getenv("PGO_FEAT_DIM")) : 0;
+  node->pgo_preprocess_alg = getenv("PGO_PREPROCESS_ALG") != nullptr ? atoi(getenv("PGO_PREPROCESS_ALG")) : 0;
+  node->pgo_weight_formula = getenv("PGO_WEIGHT_FORMULAT") != nullptr ? atoi(getenv("PGO_WEIGHT_FORMULA")) : 0;
+  node->pgo_wkl_name = getenv("PGO_WKL_NAME");
+
+  node->ProfileConfigLogging();
+
+  data_ = std::move(node);
 }
 
 State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure_per_iter,
@@ -187,7 +190,10 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
     Array<State> best_states, random_states;
     Array<MeasureInput> inputs;
     Array<MeasureResult> results;
+
     std::vector<Array<MeasureResult>> prof_results;
+    bool prof_valid = false;
+
     while (ct < n_trials) {
       if (!inputs.empty()) {
         auto t_begin = std::chrono::high_resolution_clock::now();
@@ -196,11 +202,18 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
 
-        if (isPGOEnabled()) {
-          int idx = 0;
-          for (CostModel profile_cost_model : profile_cost_models) {
-            profile_cost_model->Update(inputs, prof_results[idx]);
-            ++idx;
+        if (IsPGOEnabled()) {
+          if (prof_valid) {
+            // If there is valid profiling data, then update the profile cost
+            // models.
+            int idx = 0;
+            for (CostModel profile_cost_model : profile_cost_models) {
+              profile_cost_model->Update(inputs, prof_results[idx]);
+              ++idx;
+            }
+          } else {
+            // Otherwise, we should first analyze the most correlated metrics.
+            AnalyzeMetrics();
           }
         }
 
@@ -240,8 +253,10 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       auto t_profile = std::chrono::high_resolution_clock::now();
 
-      if (isPGOEnabled()) {
+      // Do profiling.
+      if (IsPGOEnabled()) {
         prof_results = Profile(search_task, inputs);
+        prof_valid = true;
         PrintTimeElapsed(t_profile, "profiling", verbose);
       }
 
@@ -475,7 +490,7 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 
       program_cost_model->Predict(search_task, cand_states, &pop_scores);
 
-      if (isPGOEnabled()) {
+      if (IsPGOEnabled()) {
         int idx = 0;
         for (CostModel profile_cost_model : profile_cost_models) {
           profile_cost_model->Predict(search_task, cand_states,
@@ -490,7 +505,7 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
         // Check profile scores.
         bool is_profile_valid = true;
 
-        if (isPGOEnabled()) {
+        if (IsPGOEnabled()) {
           for (int j = 0; j < num_profile_metrics; ++j) {
             if (profile_scores[j][i] < -1e10) {
               is_profile_valid = false;
@@ -604,7 +619,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
     program_cost_model->Predict(search_task, *pnow, &pop_scores);
 
     // Predict profile results.
-    if (isPGOEnabled()) {
+    if (IsPGOEnabled()) {
       int idx = 0;
       for (CostModel profile_cost_model : profile_cost_models) {
         profile_cost_model->Predict(search_task, *pnow, &profile_scores[idx]);
@@ -617,7 +632,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
       std::string state_str = state.ToStr();
 
       float score;
-      if (isPGOEnabled()) {
+      if (IsPGOEnabled()) {
         float var = ComputeVarSinglePoint(profile_scores, i);
         float weight = 0.5 * std::exp(-1.0 * iter);
         // Decreasing weight on variance.
@@ -764,6 +779,22 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
   return inputs;
 }
 
+void SketchPolicyNode::AnalyzeMetrics() {
+  StdCout(verbose) << "Analyzing metrics..." << std::endl;
+
+  std::string dir = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/"
+                    "experiments/ansor/single_op/";
+  std::string prof_file = dir + "tmp-ncu.log";
+  std::string parse_script = dir + "parse_profile.py";
+
+  // Ignore warnings.
+  std::string cmd = "python3 -W ignore " + parse_script + " --action analyze" +
+                    " --wkl-name " + std::string(pgo_wkl_name) +
+                    " --analyze-iter-num " +
+                    std::to_string(pgo_start_iter_index);
+  system(cmd.c_str());
+}
+
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
   float sum = std::accumulate(data.begin(), data.end(), 0.0f);
   float mean = sum / data.size();
@@ -803,7 +834,9 @@ std::string SketchPolicyNode::ExtractSystemCmdOutput(const char* cmd) {
 std::vector<float> SketchPolicyNode::ExtractProfileResult(
     const std::string& parse_script,
     const std::string& prof_file) {
-  std::string cmd = "python3 " + parse_script + " --log-file=" + prof_file;
+  // Ignore warnings.
+  std::string cmd = "python3 -W ignore " + parse_script +
+                    " --action preprocess --log-file=" + prof_file;
   std::string output = ExtractSystemCmdOutput(cmd.c_str());
   std::vector<std::string> values = SplitStrByNewLine(output);
   std::vector<float> float_values;
@@ -815,7 +848,7 @@ std::vector<float> SketchPolicyNode::ExtractProfileResult(
 
 int SketchPolicyNode::GetLogLineNum(const char* log_file) {
   // NOTE: here we assume there is no new line at the end of file, and the log
-  // file produced by Ansor ensures this.
+  //       file produced by Ansor ensures this.
   std::ifstream fs(log_file);
   int line_num = std::count(std::istreambuf_iterator<char>(fs),
                             std::istreambuf_iterator<char>(), '\n');
@@ -865,6 +898,17 @@ std::vector<Array<MeasureResult>> SketchPolicyNode::Profile(
   return prof_results;
 }
 
+void SketchPolicyNode::ProfileConfigLogging() {
+    StdCout(verbose) << "pgo_enbale = " << std::to_string(pgo_enable) << "\n";
+    StdCout(verbose) << "pgo_start_iter_index = "
+                     << std::to_string(pgo_start_iter_index) << "\n";
+    StdCout(verbose) << "pgo_feat_dim = " << std::to_string(pgo_feat_dim)
+                     << "\n";
+    StdCout(verbose) << "pgo_preprocess_alg = "
+                     << std::to_string(pgo_preprocess_alg) << "\n";
+    StdCout(verbose) << "pgo_wkl_name = " << (pgo_wkl_name != nullptr ? std::string(pgo_wkl_name) : "nullptr") << "\n";
+}
+
 void SketchPolicyNode::RunProfiler(const std::string& exec_script,
                                    const std::string& log_file,
                                    const std::string& prof_file,
@@ -889,6 +933,47 @@ std::vector<std::string> SketchPolicyNode::SplitStrByNewLine(
 
   return tokens;
 }
+
+void SketchPolicyNode::UpdateProfileModelsFromDir(
+    const Array<MeasureInput>& inputs,
+    const std::string& log_dir) {
+  std::string parse_script =
+      "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/"
+      "single_op/parse_profile.py";
+  std::vector<std::vector<float>> metric_values;
+
+  for (int i = 0; i < pgo_start_iter_index; ++i) {
+    std::string prof_file = log_dir + std::string(pgo_wkl_name) + "-ncu-" +
+                            std::to_string(i) + ".log";
+    std::vector<float> values = ExtractProfileResult(parse_script, prof_file);
+    for (float value : values) {
+      StdCout(verbose) << std::to_string(value) << "\n";
+    }
+    metric_values.push_back(values);
+  }
+
+  if (metric_values.empty()) {
+    StdCout(verbose) << "Empty metric values!" << std::endl;
+    return;
+  }
+
+  for (size_t i = 0; i < metric_values[0].size(); ++i) {
+    Array<MeasureResult> results;
+    for (size_t j = 0; j < metric_values.size(); ++j) {
+      std::vector<float> values = metric_values[j];
+      Array<PrimExpr> costs;
+      costs.push_back(values[i]);
+      MeasureResult result = MeasureResult(costs,
+                                           /* error_no= */0,
+                                           /* error_msg= */"",
+                                           /* all_cost= */0.0,
+                                           /* timestamp= */0.0);
+      results.push_back(result);
+    }
+    (*(profile_cost_models.begin() + i))->Update(inputs, results);
+  }
+}
+
 
 /********** PreloadCustomSketchRule **********/
 TVM_REGISTER_OBJECT_TYPE(PreloadCustomSketchRuleNode);
@@ -937,6 +1022,11 @@ TVM_REGISTER_GLOBAL("auto_scheduler.SketchPolicyEvolutionarySearch")
     .set_body_typed([](SketchPolicy policy, Array<State> init_population, int out_size) {
       Array<State> states = policy->EvolutionarySearch(init_population, out_size);
       return states;
+    });
+
+TVM_REGISTER_GLOBAL("auto_scheduler.SketchPolicyUpdateProfileModelsFromDir")
+    .set_body_typed([](SketchPolicy policy, Array<MeasureInput> inputs, String log_dir) {
+      policy->UpdateProfileModelsFromDir(inputs, log_dir);
     });
 
 TVM_REGISTER_GLOBAL("auto_scheduler.PrintTitle").set_body_typed([](std::string title) {
