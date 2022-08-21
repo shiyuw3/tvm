@@ -192,7 +192,6 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
     Array<MeasureResult> results;
 
     std::vector<Array<MeasureResult>> prof_results;
-    bool prof_valid = false;
 
     while (ct < n_trials) {
       if (!inputs.empty()) {
@@ -202,18 +201,13 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
 
-        if (IsPGOEnabled()) {
-          if (prof_valid) {
-            // If there is valid profiling data, then update the profile cost
-            // models.
-            int idx = 0;
-            for (CostModel profile_cost_model : profile_cost_models) {
-              profile_cost_model->Update(inputs, prof_results[idx]);
-              ++idx;
-            }
-          } else {
-            // Otherwise, we should first analyze the most correlated metrics.
-            AnalyzeMetrics();
+        if (IsPGOEnabled() && !prof_results.empty()) {
+          // If there is valid profiling data, then update the profile cost
+          // models.
+          int idx = 0;
+          for (CostModel profile_cost_model : profile_cost_models) {
+            profile_cost_model->Update(inputs, prof_results[idx]);
+            ++idx;
           }
         }
 
@@ -254,9 +248,8 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       auto t_profile = std::chrono::high_resolution_clock::now();
 
       // Do profiling.
-      if (IsPGOEnabled()) {
+      if (IsPGOEnabled() && pgo_analysis_done) {
         prof_results = Profile(search_task, inputs);
-        prof_valid = true;
         PrintTimeElapsed(t_profile, "profiling", verbose);
       }
 
@@ -792,7 +785,10 @@ void SketchPolicyNode::AnalyzeMetrics() {
                     " --wkl-name " + std::string(pgo_wkl_name) +
                     " --analyze-iter-num " +
                     std::to_string(pgo_start_iter_index);
+  StdCout(verbose) << "Command: " << cmd << "\n";
   system(cmd.c_str());
+
+  pgo_analysis_done = true;
 }
 
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
@@ -915,7 +911,7 @@ void SketchPolicyNode::RunProfiler(const std::string& exec_script,
                                    int idx) {
   std::string cmd = "ncu --set full --csv --details-all -c 10 python3 ";
   std::string workload = "sample-conv2d";
-  cmd += exec_script + " --wkl " + workload + " --eval-trial-index " +
+  cmd += exec_script + " --action eval --wkl " + workload + " --eval-trial-index " +
          std::to_string(idx) + " --log-file " + log_file + " > " + prof_file;
   StdCout(verbose) << cmd << "\n";
   system(cmd.c_str());
@@ -937,13 +933,16 @@ std::vector<std::string> SketchPolicyNode::SplitStrByNewLine(
 void SketchPolicyNode::UpdateProfileModelsFromDir(
     const Array<MeasureInput>& inputs,
     const std::string& log_dir) {
+  // Analyze most correlated metrics before updating profiling cost models.
+  AnalyzeMetrics();
+
   std::string parse_script =
       "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/"
       "single_op/parse_profile.py";
   std::vector<std::vector<float>> metric_values;
 
   for (int i = 0; i < pgo_start_iter_index; ++i) {
-    std::string prof_file = log_dir + std::string(pgo_wkl_name) + "-ncu-" +
+    std::string prof_file = log_dir + "/" + std::string(pgo_wkl_name) + "-ncu-" +
                             std::to_string(i) + ".log";
     std::vector<float> values = ExtractProfileResult(parse_script, prof_file);
     for (float value : values) {

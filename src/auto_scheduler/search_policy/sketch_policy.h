@@ -184,6 +184,7 @@ class SketchPolicyNode : public SearchPolicyNode {
   int pgo_preprocess_alg = 0;
   int pgo_weight_formula = 0;
   char* pgo_wkl_name = nullptr;
+  bool pgo_analysis_done = false;
 
  private:
   /*!
