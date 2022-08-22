@@ -191,7 +191,7 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
     Array<MeasureInput> inputs;
     Array<MeasureResult> results;
 
-    std::vector<Array<MeasureResult>> prof_results;
+    std::vector<std::vector<float>> metric_values;
 
     while (ct < n_trials) {
       if (!inputs.empty()) {
@@ -201,14 +201,10 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
 
-        if (IsPGOEnabled() && !prof_results.empty()) {
+        if (IsPGOEnabled() && !metric_values.empty()) {
           // If there is valid profiling data, then update the profile cost
           // models.
-          int idx = 0;
-          for (CostModel profile_cost_model : profile_cost_models) {
-            profile_cost_model->Update(inputs, prof_results[idx]);
-            ++idx;
-          }
+          FilterAndUpdateProfileModels(inputs, metric_values);
         }
 
         PrintTimeElapsed(t_begin, "training", verbose);
@@ -249,11 +245,13 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       // Do profiling.
       if (IsPGOEnabled() && pgo_analysis_done) {
-        prof_results = Profile(search_task, inputs);
+        metric_values = Profile(search_task, inputs);
         PrintTimeElapsed(t_profile, "profiling", verbose);
       }
 
       ct += inputs.size();
+
+      StdCout(verbose) << "ct: " << ct << "\n";
 
       // Check if reach the early stopping condition
       if (ct - measurer->best_ct[search_task->workload_key] > early_stopping &&
@@ -484,11 +482,9 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
       program_cost_model->Predict(search_task, cand_states, &pop_scores);
 
       if (IsPGOEnabled()) {
-        int idx = 0;
-        for (CostModel profile_cost_model : profile_cost_models) {
-          profile_cost_model->Predict(search_task, cand_states,
-                                      &profile_scores[idx]);
-          ++idx;
+        for (size_t idx = 0; idx < profile_cost_models.size(); ++idx) {
+          (*(profile_cost_models.begin() + idx))->Predict(
+              search_task, cand_states, &profile_scores[idx]);
         }
       }
 
@@ -613,10 +609,9 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
     // Predict profile results.
     if (IsPGOEnabled()) {
-      int idx = 0;
-      for (CostModel profile_cost_model : profile_cost_models) {
-        profile_cost_model->Predict(search_task, *pnow, &profile_scores[idx]);
-        ++idx;
+      for (size_t idx = 0; idx < profile_cost_models.size(); ++idx) {
+        (*(profile_cost_models.begin() + idx))->Predict(
+            search_task, *pnow, &profile_scores[idx]);
       }
     }
 
@@ -842,6 +837,38 @@ std::vector<float> SketchPolicyNode::ExtractProfileResult(
   return float_values;
 }
 
+void SketchPolicyNode::FilterAndUpdateProfileModels(
+    const Array<MeasureInput>& inputs,
+    const std::vector<std::vector<float>>& metric_values) {
+  for (size_t i = 0; i < metric_values[0].size(); ++i) {
+    Array<MeasureInput> filtered_inputs;
+    Array<MeasureResult> filtered_results;
+
+    for (size_t j = 0; j < metric_values.size(); ++j) {
+      std::vector<float> values = metric_values[j];
+
+      // NOTE: metric value closed to 0.0 will be regard as invalid value.
+      if (values[i] < 1e-10) {
+        continue;
+      }
+
+      filtered_inputs.push_back(*(inputs.begin() + j));
+
+      Array<PrimExpr> costs;
+      costs.push_back(values[i]);
+      MeasureResult result = MeasureResult(costs,
+                                           /* error_no= */0,
+                                           /* error_msg= */"",
+                                           /* all_cost= */0.0,
+                                           /* timestamp= */0.0);
+      filtered_results.push_back(result);
+    }
+
+    (*(profile_cost_models.begin() + i))->Update(filtered_inputs,
+                                                 filtered_results);
+  }
+}
+
 int SketchPolicyNode::GetLogLineNum(const char* log_file) {
   // NOTE: here we assume there is no new line at the end of file, and the log
   //       file produced by Ansor ensures this.
@@ -851,19 +878,20 @@ int SketchPolicyNode::GetLogLineNum(const char* log_file) {
   return line_num;
 }
 
-std::vector<Array<MeasureResult>> SketchPolicyNode::Profile(
+std::vector<std::vector<float>> SketchPolicyNode::Profile(
     const SearchTask& task, const Array<MeasureInput>& inputs, int batch_size) {
-  std::vector<Array<MeasureResult>> prof_results;
   std::vector<std::vector<float>> metric_values;
 
   std::string dir = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/"
                     "experiments/ansor/single_op/";
-  std::string log_file = dir + "tmp.log";
+  std::string log_file = dir + "snapshots/11.1/" + pgo_wkl_name + "/" + pgo_wkl_name + ".json";
   std::string prof_file = dir + "tmp-ncu.log";
   std::string exec_script = dir + "tune_single_op.py";
   std::string parse_script = dir + "parse_profile.py";
   int num_record = GetLogLineNum(log_file.c_str());
   int num_input = inputs.size();
+
+  StdCout(verbose) << "Line number of json file: " << num_record << "\n";
 
   for (int i = 0; i < num_input; ++i) {
     int idx = num_record - num_input + i;
@@ -875,23 +903,8 @@ std::vector<Array<MeasureResult>> SketchPolicyNode::Profile(
     metric_values.push_back(values);
   }
 
-  for (size_t i = 0; i < metric_values[0].size(); ++i) {
-    Array<MeasureResult> results;
-    for (size_t j = 0; j < metric_values.size(); ++j) {
-      std::vector<float> values = metric_values[j];
-      Array<PrimExpr> costs;
-      costs.push_back(values[i]);
-      MeasureResult result = MeasureResult(costs,
-                                           /* error_no= */0,
-                                           /* error_msg= */"",
-                                           /* all_cost= */0.0,
-                                           /* timestamp= */0.0);
-      results.push_back(result);
-    }
-    prof_results.push_back(results);
-  }
+  return metric_values;
 
-  return prof_results;
 }
 
 void SketchPolicyNode::ProfileConfigLogging() {
@@ -942,8 +955,9 @@ void SketchPolicyNode::UpdateProfileModelsFromDir(
   std::vector<std::vector<float>> metric_values;
 
   for (int i = 0; i < pgo_start_iter_index; ++i) {
-    std::string prof_file = log_dir + "/" + std::string(pgo_wkl_name) + "-ncu-" +
-                            std::to_string(i) + ".log";
+    std::string prof_file =
+        log_dir + "/" + std::string(pgo_wkl_name) + "-ncu-" +
+        std::to_string(i) + ".log";
     std::vector<float> values = ExtractProfileResult(parse_script, prof_file);
     for (float value : values) {
       StdCout(verbose) << std::to_string(value) << "\n";
@@ -956,21 +970,7 @@ void SketchPolicyNode::UpdateProfileModelsFromDir(
     return;
   }
 
-  for (size_t i = 0; i < metric_values[0].size(); ++i) {
-    Array<MeasureResult> results;
-    for (size_t j = 0; j < metric_values.size(); ++j) {
-      std::vector<float> values = metric_values[j];
-      Array<PrimExpr> costs;
-      costs.push_back(values[i]);
-      MeasureResult result = MeasureResult(costs,
-                                           /* error_no= */0,
-                                           /* error_msg= */"",
-                                           /* all_cost= */0.0,
-                                           /* timestamp= */0.0);
-      results.push_back(result);
-    }
-    (*(profile_cost_models.begin() + i))->Update(inputs, results);
-  }
+  FilterAndUpdateProfileModels(inputs, metric_values);
 }
 
 

@@ -157,15 +157,19 @@ class SketchPolicyNode : public SearchPolicyNode {
   std::vector<float> ExtractProfileResult(const std::string& parse_script,
                                           const std::string& prof_file);
 
+  void FilterAndUpdateProfileModels(
+      const Array<MeasureInput>& inputs,
+      const std::vector<std::vector<float>>& metric_values);
+
   std::string ExtractSystemCmdOutput(const char* cmd);
 
   int GetLogLineNum(const char* log_file);
 
   bool IsPGOEnabled() const { return pgo_enable; }
 
-  std::vector<Array<MeasureResult>> Profile(const SearchTask& task,
-                                            const Array<MeasureInput>& inputs,
-                                            int batch_size = -1);
+  std::vector<std::vector<float>> Profile(const SearchTask& task,
+                                          const Array<MeasureInput>& inputs,
+                                          int batch_size = -1);
 
   void ProfileConfigLogging();
 
