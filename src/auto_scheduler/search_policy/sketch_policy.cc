@@ -923,7 +923,7 @@ void SketchPolicyNode::RunProfiler(const std::string& exec_script,
                                    const std::string& prof_file,
                                    int idx) {
   std::string cmd = "ncu --set full --csv --details-all -c 10 python3 ";
-  std::string workload = "sample-conv2d";
+  std::string workload = pgo_wkl_name;
   cmd += exec_script + " --action eval --wkl " + workload + " --eval-trial-index " +
          std::to_string(idx) + " --log-file " + log_file + " > " + prof_file;
   StdCout(verbose) << cmd << "\n";
