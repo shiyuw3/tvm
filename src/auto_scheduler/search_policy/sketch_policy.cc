@@ -621,10 +621,19 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
       float score;
       if (IsPGOEnabled()) {
-        float var = ComputeVarSinglePoint(profile_scores, i);
-        float weight = 0.5 * std::exp(-1.0 * iter);
-        // Decreasing weight on variance.
-        score = (1 - weight) * pop_scores[i] + weight * var;
+        if (iter < 50) {
+          float var = ComputeVarSinglePoint(profile_scores, i);
+          float weight = 0.5 * std::exp(-1.0 * iter);
+          // Decreasing weight on variance.
+          score = (1 - weight) * pop_scores[i] + weight * var;
+        } else {
+          float prof_score = ComputeProfileScore(profile_scores, i);
+          score = 0.6 * pop_scores[i] + (1 - 0.6) * prof_score;
+        }
+        StdCout(verbose) << "Iter: " << iter
+                         <<", pop_score: " << std::fixed << std::setprecision(4)
+                         << pop_scores[i] << "score: "  << std::fixed
+                         << std::setprecision(4) << score <<"\n";
       } else {
         score = pop_scores[i];
       }
@@ -786,6 +795,18 @@ void SketchPolicyNode::AnalyzeMetrics() {
   pgo_analysis_done = true;
 }
 
+float SketchPolicyNode::ComputeProfileScore(
+    const std::vector<std::vector<float>>& profile_scores, size_t idx) {
+  float sum = 0.0f;
+  for (size_t i = 0; i < profile_scores.size(); ++i) {
+    std::vector<float> scores = profile_scores[i];
+    sum += scores[idx];
+  }
+  // Since we the selected profile values are most correlated ones with
+  // execution time, we need to use it as denominator to compute scores.
+  return (0.01 / sum / (float)profile_scores.size());
+}
+
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
   float sum = std::accumulate(data.begin(), data.end(), 0.0f);
   float mean = sum / data.size();
@@ -796,6 +817,8 @@ float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
   return std::sqrt(accum / (data.size() - 1));
 }
 
+// Note: We use the difference of average values with and without a specific
+// point to measure the variance contribution of that point.
 float SketchPolicyNode::ComputeVarSinglePoint(
     const std::vector<std::vector<float>>& profile_scores, size_t idx) {
   float var = 0.0f;

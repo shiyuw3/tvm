@@ -149,6 +149,9 @@ class SketchPolicyNode : public SearchPolicyNode {
   // Profiling helper functions.
   void AnalyzeMetrics();
 
+  float ComputeProfileScore(
+      const std::vector<std::vector<float>>& profile_scores, size_t idx);
+
   float ComputeStdFromVector(const std::vector<float>& data);
 
   float ComputeVarSinglePoint(
