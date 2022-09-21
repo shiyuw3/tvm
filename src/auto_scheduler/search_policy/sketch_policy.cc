@@ -626,14 +626,18 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
           float weight = 0.5 * std::exp(-1.0 * iter);
           // Decreasing weight on variance.
           score = (1 - weight) * pop_scores[i] + weight * var;
+
+          StdCout(verbose) << "Iter: " << iter
+                           << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
+                           << ", var: " << std::fixed << std::setprecision(4) << var
+                           << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
           score = 0.6 * pop_scores[i] + (1 - 0.6) * prof_score;
+          StdCout(verbose) << "Iter: " << iter
+                           << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
+                           << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
         }
-        StdCout(verbose) << "Iter: " << iter
-                         <<", pop_score: " << std::fixed << std::setprecision(4)
-                         << pop_scores[i] << "score: "  << std::fixed
-                         << std::setprecision(4) << score <<"\n";
       } else {
         score = pop_scores[i];
       }
@@ -802,9 +806,7 @@ float SketchPolicyNode::ComputeProfileScore(
     std::vector<float> scores = profile_scores[i];
     sum += scores[idx];
   }
-  // Since we the selected profile values are most correlated ones with
-  // execution time, we need to use it as denominator to compute scores.
-  return (0.01 / sum / (float)profile_scores.size());
+  return -sum / (float)profile_scores.size();
 }
 
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
@@ -824,9 +826,18 @@ float SketchPolicyNode::ComputeVarSinglePoint(
   float var = 0.0f;
   for (size_t i = 0; i < profile_scores.size(); ++i) {
     std::vector<float> scores = profile_scores[i];
-    float sum = std::accumulate(scores.begin(), scores.end(), 0.0f);
-    float before = sum / scores.size();
-    float after = (sum - scores[idx]) / (scores.size() - 1);
+    // Exclude inf/nan values.
+    if (std::isnan(scores[idx]) || std::isinf(scores[idx])) { continue; }
+    float sum = 0.0f;
+    unsigned cnt = 0;
+    for (size_t j = 0; j < scores.size(); ++j) {
+      if (std::isnan(scores[j]) || std::isinf(scores[j])) { continue; }
+      sum += scores[j];
+      cnt += 1;
+
+    }
+    float before = sum / cnt;
+    float after = (sum - scores[idx]) / (cnt - 1);
     var += std::fabs(before - after) / profile_scores.size();
   }
   return var;
