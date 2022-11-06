@@ -193,6 +193,9 @@ class SketchPolicyNode : public SearchPolicyNode {
   char* pgo_wkl_name = nullptr;
   bool pgo_analysis_done = false;
 
+  std::vector<std::string> pgo_metrics;
+  std::vector<float> pgo_corrs;
+
  private:
   /*!
    * \brief Run one round of the search pipeline.

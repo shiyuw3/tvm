@@ -251,8 +251,6 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       ct += inputs.size();
 
-      StdCout(verbose) << "ct: " << ct << "\n";
-
       // Check if reach the early stopping condition
       if (ct - measurer->best_ct[search_task->workload_key] > early_stopping &&
           measurer->has_valid.count(search_task->workload_key)) {
@@ -783,8 +781,7 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
 void SketchPolicyNode::AnalyzeMetrics() {
   StdCout(verbose) << "Analyzing metrics..." << std::endl;
 
-  std::string dir = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/"
-                    "experiments/ansor/single_op/";
+  std::string dir = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/single_op/";
   std::string prof_file = dir + "tmp-ncu.log";
   std::string parse_script = dir + "parse_profile.py";
 
@@ -795,6 +792,24 @@ void SketchPolicyNode::AnalyzeMetrics() {
                     std::to_string(pgo_start_iter_index);
   StdCout(verbose) << "Command: " << cmd << "\n";
   system(cmd.c_str());
+
+  std::string metric_analysis = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/single_op/metric-analysis";
+  std::ifstream fin(metric_analysis.c_str());
+  std::string line;
+  if (fin) {
+    while (getline(fin, line)) {
+      std::stringstream ss(line);
+      int cnt = 0;
+      while (getline(ss, line, ' ')) {
+        if (cnt % 2 == 0) {
+          pgo_metrics.push_back(line);
+        } else {
+          pgo_metrics.push_back(std::stof(line));
+        }
+        cnt++;
+      }
+    }
+  }
 
   pgo_analysis_done = true;
 }
@@ -984,8 +999,7 @@ void SketchPolicyNode::UpdateProfileModelsFromDir(
   AnalyzeMetrics();
 
   std::string parse_script =
-      "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/"
-      "single_op/parse_profile.py";
+      "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/single_op/parse_profile.py";
   std::vector<std::vector<float>> metric_values;
 
   for (int i = 0; i < pgo_start_iter_index; ++i) {
