@@ -619,11 +619,12 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
       float score;
       if (IsPGOEnabled()) {
-        if (iter < 50) {
+        if (iter < 150) {
+          score = pop_scores[i];
           float var = ComputeVarSinglePoint(profile_scores, i);
-          float weight = 0.5 * std::exp(-1.0 * iter);
+          float weight = std::exp(-0.03 * iter);
           // Decreasing weight on variance.
-          score = (1 - weight) * pop_scores[i] + weight * var * 200;
+          score = (1 - weight) * pop_scores[i] + weight * var * 20000;
 
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
@@ -782,7 +783,6 @@ void SketchPolicyNode::AnalyzeMetrics() {
   StdCout(verbose) << "Analyzing metrics..." << std::endl;
 
   std::string dir = "/home/shiyuw3/Research/Profiling-Guided-Tuning-Sketch/experiments/ansor/single_op/";
-  std::string prof_file = dir + "tmp-ncu.log";
   std::string parse_script = dir + "parse_profile.py";
 
   // Ignore warnings.
@@ -804,7 +804,7 @@ void SketchPolicyNode::AnalyzeMetrics() {
         if (cnt % 2 == 0) {
           pgo_metrics.push_back(line);
         } else {
-          pgo_metrics.push_back(std::stof(line));
+          pgo_corrs.push_back(std::stof(line));
         }
         cnt++;
       }
@@ -819,9 +819,10 @@ float SketchPolicyNode::ComputeProfileScore(
   float sum = 0.0f;
   for (size_t i = 0; i < profile_scores.size(); ++i) {
     std::vector<float> scores = profile_scores[i];
-    sum += scores[idx];
+    sum += (scores[idx] * pgo_corrs[i]);
   }
-  return 0.01 / sum / (float)profile_scores.size();
+  // Use negative since the correlation is compute against execution time.
+  return -sum;
 }
 
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
@@ -875,8 +876,7 @@ std::vector<float> SketchPolicyNode::ExtractProfileResult(
     const std::string& parse_script,
     const std::string& prof_file) {
   // Ignore warnings.
-  std::string cmd = "python3 -W ignore " + parse_script +
-                    " --action preprocess --log-file=" + prof_file;
+  std::string cmd = "python3 -W ignore " + parse_script + " --action preprocess --log-file=" + prof_file;
   std::string output = ExtractSystemCmdOutput(cmd.c_str());
   std::vector<std::string> values = SplitStrByNewLine(output);
   std::vector<float> float_values;
@@ -953,7 +953,6 @@ std::vector<std::vector<float>> SketchPolicyNode::Profile(
   }
 
   return metric_values;
-
 }
 
 void SketchPolicyNode::ProfileConfigLogging() {
@@ -971,7 +970,12 @@ void SketchPolicyNode::RunProfiler(const std::string& exec_script,
                                    const std::string& log_file,
                                    const std::string& prof_file,
                                    int idx) {
-  std::string cmd = "ncu --set full --csv --details-all -c 10 python3 ";
+  std::string cmd = "ncu --metric ";
+  for (const std::string& metric : pgo_metrics) {
+    cmd += metric + ",";
+  }
+
+  cmd += " --csv --details-all -c 10 python3 ";
   std::string workload = pgo_wkl_name;
   cmd += exec_script + " --action eval --wkl " + workload + " --eval-trial-index " +
          std::to_string(idx) + " --log-file " + log_file + " > " + prof_file;
