@@ -619,12 +619,12 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
       float score;
       if (IsPGOEnabled()) {
-        if (iter < 150) {
+        if (iter <= 64) {
           score = pop_scores[i];
           float var = ComputeVarSinglePoint(profile_scores, i);
-          float weight = std::exp(-0.03 * iter);
+          float weight = 0.7 * std::exp(-0.02 * (iter + 1));
           // Decreasing weight on variance.
-          score = (1 - weight) * pop_scores[i] + weight * var * 20000;
+          score = (1 - weight) * pop_scores[i] + weight * var * 15000;
 
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
@@ -632,7 +632,8 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
-          score = 0.7 * pop_scores[i] + 0.3 * prof_score;
+          float weight = 1 / (float)profile_scores.size();
+          score = (1 - weight) * pop_scores[i] + weight * prof_score;
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
