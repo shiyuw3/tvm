@@ -957,7 +957,7 @@ std::vector<std::vector<float>> SketchPolicyNode::Profile(
 }
 
 void SketchPolicyNode::ProfileConfigLogging() {
-    StdCout(verbose) << "pgo_enbale = " << std::to_string(pgo_enable) << "\n";
+    StdCout(verbose) << "pgo_enable = " << std::to_string(pgo_enable) << "\n";
     StdCout(verbose) << "pgo_start_iter_index = "
                      << std::to_string(pgo_start_iter_index) << "\n";
     StdCout(verbose) << "pgo_feat_dim = " << std::to_string(pgo_feat_dim)
