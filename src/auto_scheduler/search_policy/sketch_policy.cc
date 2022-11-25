@@ -624,7 +624,8 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
           float var = ComputeVarSinglePoint(profile_scores, i);
           float weight = 0.7 * std::exp(-0.02 * (iter + 1));
           // Decreasing weight on variance.
-          score = (1 - weight) * pop_scores[i] + weight * var * 15000;
+          score = (1 - weight) * pop_scores[i] + weight * var * 15000;  // 3090/3090Ti
+          // score = (1 - weight) * pop_scores[i] + weight * var * 20000;  // 2080
 
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
@@ -632,7 +633,8 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
-          float weight = 1 / (float)profile_scores.size();
+          float weight = 1 / (float)profile_scores.size();  // 3090/3090Ti
+          // float weight = 0.7 / (float)profile_scores.size();  // 2080
           score = (1 - weight) * pop_scores[i] + weight * prof_score;
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
