@@ -622,10 +622,9 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
         if (iter <= 64) {
           score = pop_scores[i];
           float var = ComputeVarSinglePoint(profile_scores, i);
-          float weight = 0.7 * std::exp(-0.02 * (iter + 1));
+          float weight = 0.5 * std::exp(-0.02 * (iter + 1));
           // Decreasing weight on variance.
-          score = (1 - weight) * pop_scores[i] + weight * var * 15000;  // 3090/3090Ti
-          // score = (1 - weight) * pop_scores[i] + weight * var * 20000;  // 2080
+          score = (1 - weight) * pop_scores[i] + weight * var;
 
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
@@ -633,8 +632,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
-          float weight = 1 / (float)profile_scores.size();  // 3090/3090Ti
-          // float weight = 0.7 / (float)profile_scores.size();  // 2080
+          float weight = 0.3;
           score = (1 - weight) * pop_scores[i] + weight * prof_score;
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
@@ -825,7 +823,7 @@ float SketchPolicyNode::ComputeProfileScore(
     sum += (scores[idx] * pgo_corrs[i]);
   }
   // Use negative since the correlation is compute against execution time.
-  return -sum;
+  return -sum / (float)profile_scores.size();
 }
 
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
@@ -857,9 +855,10 @@ float SketchPolicyNode::ComputeVarSinglePoint(
     }
     float before = sum / cnt;
     float after = (sum - scores[idx]) / (cnt - 1);
-    var += std::fabs(before - after) / profile_scores.size();
+    var += std::fabs(before - after);
   }
-  return var;
+
+  return var * 12000 / (float)profile_scores.size();
 }
 
 std::string SketchPolicyNode::ExtractSystemCmdOutput(const char* cmd) {
