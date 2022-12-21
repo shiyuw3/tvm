@@ -620,9 +620,8 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
       float score;
       if (IsPGOEnabled()) {
         if (iter <= 64) {
-          // score = pop_scores[i];
           float var = ComputeVarSinglePoint(profile_scores, i);
-          float weight = 0.4 * std::exp(-0.03 * (iter + 1));
+          float weight = 0.3 * std::exp(-0.03 * (iter + 1));
           // Decreasing weight on variance.
           score = (1 - weight) * pop_scores[i] + weight * var;
 
@@ -859,7 +858,7 @@ float SketchPolicyNode::ComputeVarSinglePoint(
     var += std::fabs(before - after);
   }
 
-  return var * 8000 / (float)profile_scores.size();
+  return var * 1000 / (float)profile_scores.size();
 }
 
 std::string SketchPolicyNode::ExtractSystemCmdOutput(const char* cmd) {
