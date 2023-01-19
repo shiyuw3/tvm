@@ -239,12 +239,14 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       // Measure candidate states
       PrintTitle("Measure", verbose);
-      results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
 
-      auto t_profile = std::chrono::high_resolution_clock::now();
+      auto t_measure = std::chrono::high_resolution_clock::now();
+      results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
+      PrintTimeElapsed(t_measure, "measure", verbose);
 
       // Do profiling.
       if (IsPGOEnabled() && pgo_analysis_done) {
+        auto t_profile = std::chrono::high_resolution_clock::now();
         metric_values = Profile(search_task, inputs);
         PrintTimeElapsed(t_profile, "profiling", verbose);
       }
@@ -625,18 +627,22 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
           // Decreasing weight on variance.
           score = (1 - weight) * pop_scores[i] + weight * var;
 
+#if 0
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
                            << ", var: " << std::fixed << std::setprecision(4) << var
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
+#endif
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
           float weight = 0.1;
           score = (1 - weight) * pop_scores[i] + weight * prof_score;
+#if 0
           StdCout(verbose) << "Iter: " << iter
                            << ", pop_score: " << std::fixed << std::setprecision(4) << pop_scores[i]
                            << ", prof_score: " << std::fixed << std::setprecision(4) << prof_score
                            << ", score: "  << std::fixed << std::setprecision(4) << score << "\n";
+#endif
         }
       } else {
         score = pop_scores[i];
