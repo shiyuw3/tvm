@@ -609,10 +609,14 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
     // Predict profile results.
     if (IsPGOEnabled()) {
+      auto t_search_profile = std::chrono::high_resolution_clock::now();
+
       for (size_t idx = 0; idx < profile_cost_models.size(); ++idx) {
         (*(profile_cost_models.begin() + idx))->Predict(
             search_task, *pnow, &profile_scores[idx]);
       }
+
+      PrintTimeElapsed(t_search_profile, "search-profile", verbose);
     }
 
     for (size_t i = 0; i < pnow->size(); ++i) {
