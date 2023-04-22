@@ -639,7 +639,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 #endif
         } else {
           float prof_score = ComputeProfileScore(profile_scores, i);
-          float weight = 0.1;
+          float weight = 0.3;
           score = (1 - weight) * pop_scores[i] + weight * prof_score;
 #if 0
           StdCout(verbose) << "Iter: " << iter
