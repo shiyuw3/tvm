@@ -832,8 +832,9 @@ float SketchPolicyNode::ComputeProfileScore(
     std::vector<float> scores = profile_scores[i];
     sum += (scores[idx] * pgo_corrs[i]);
   }
-  // Use negative since the correlation is compute against execution time.
-  return -sum / (float)profile_scores.size();
+  // Note: we cannot multiply -1 here since Ansor has already taken reciprocal
+  //       when extracting measurement results.
+  return sum / (float)profile_scores.size();
 }
 
 float SketchPolicyNode::ComputeStdFromVector(const std::vector<float>& data) {
