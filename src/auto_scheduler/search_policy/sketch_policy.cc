@@ -627,7 +627,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
       if (IsPGOEnabled()) {
         if (iter <= 64) {
           float var = ComputeVarSinglePoint(profile_scores, i);
-          float weight = 0.3 * std::exp(-0.03 * (iter + 1));
+          float weight = 0.4 * std::exp(-0.03 * (iter + 1));
           // Decreasing weight on variance.
           score = (1 - weight) * pop_scores[i] + weight * var;
 
