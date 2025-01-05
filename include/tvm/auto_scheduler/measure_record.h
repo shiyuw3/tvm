@@ -134,6 +134,10 @@ void WriteMeasureRecords(std::ostream* os, const Array<MeasureInput>& inputs,
 void ReadMeasureRecord(const std::string& str, MeasureInputNode* inp, MeasureResultNode* res,
                        std::string* log_version);
 
+void WriteState(const ::tvm::auto_scheduler::StateNode& state,
+                bool eol = false);
+void WriteString(const std::string& str);
+
 }  // namespace auto_scheduler
 }  // namespace tvm
 

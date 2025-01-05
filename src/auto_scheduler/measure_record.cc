@@ -482,5 +482,23 @@ TVM_REGISTER_GLOBAL("auto_scheduler.DeserializeSearchTask").set_body_typed([](St
   return ObjectRef(search_task);
 });
 
+/* Log file and helper functions to record history candidates during search */
+String fn = String("tmp.json");
+std::ofstream ofs(fn, std::ofstream::app);
+dmlc::JSONWriter g_writer(&ofs);
+
+void WriteState(const ::tvm::auto_scheduler::StateNode& state, bool eol) {
+  g_writer.BeginArray(false);
+  g_writer.WriteArrayItem(state);
+  g_writer.EndArray();
+  if (eol) {
+    ofs << "\n";
+  }
+}
+
+void WriteString(const std::string& str) {
+  ofs << str;
+}
+
 }  // namespace auto_scheduler
 }  // namespace tvm

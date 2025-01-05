@@ -26,6 +26,7 @@
 
 #include "sketch_policy.h"
 
+#include <tvm/auto_scheduler/measure_record.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/support/parallel_for.h>
 
@@ -40,6 +41,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include <fstream>
+#include <sstream>
 
 #include "sketch_policy_rules.h"
 
@@ -65,6 +68,7 @@ static InitParallel init_parallel;
 static InitUnroll init_unroll;
 static InitVectorization init_vectorization;
 static InitThreadBind init_thread_bind;
+
 
 /********** Sketch policy **********/
 TVM_REGISTER_NODE_TYPE(SketchPolicyNode);
@@ -532,7 +536,15 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
   for (const auto& rule : mutation_rules) {
     rule_weights.push_back(rule->weight);
   }
+
   ComputePrefixSumProb(rule_weights, &rule_selection_probs);
+
+  StdCout(verbose) << "population: " << population
+                   << ", mutation_prob: " << mutation_prob
+                   << ", num_iters: " << num_iters
+                   << ", num_mutation_rules: " << mutation_rules.size()
+                   << ", out_size: " << out_size
+                   << std::endl;
 
   // Genetic Algorithm
   for (int k = 0; k < num_iters + 1; ++k) {
@@ -545,19 +557,30 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
       const State& state = (*pnow)[i];
       std::string state_str = state.ToStr();
 
+      // Insert heap only if this has not been generated before.
       if (in_heap.count(state_str) == 0) {
+        // Record state to history json.
+        WriteState(*state.operator->());
+
         if (static_cast<int>(heap.size()) < out_size) {
           heap.emplace_back((*pnow)[i], pop_scores[i]);
           std::push_heap(heap.begin(), heap.end(), cmp);
           in_heap.insert(state_str);
+          WriteString(", PICK\n");
         } else if (pop_scores[i] > heap.front().second) {
-          std::string old_state_str = heap.front().first.ToStr();
+          WriteString(", PICK\n");
+          const State& front = heap.front().first;
+          WriteState(*front.operator->());
+          WriteString(", POP\n");
+          std::string old_state_str = front.ToStr();
           in_heap.erase(old_state_str);
           in_heap.insert(state_str);
 
           std::pop_heap(heap.begin(), heap.end(), cmp);
           heap.back() = StateHeapItem(state, pop_scores[i]);
           std::push_heap(heap.begin(), heap.end(), cmp);
+        } else {
+          WriteString(", DROP\n");
         }
         if (pop_scores[i] > max_score) {
           max_score = pop_scores[i];
@@ -630,6 +653,14 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       static_cast<int>(GetDoubleParam(params, SketchParamKey::eps_greedy) * num_measure_per_iter_);
   int num_good = num_measure_per_iter_ - num_random;
 
+  StdCout(verbose) << "num_random: " << num_random
+                   << ", num_good: " << num_good
+                   << ", num_measure_per_iter_: " << num_measure_per_iter_
+                   << ", remaining_n_trials: " << remaining_n_trials
+                   << ", best_states.size(): " << best_states.size()
+                   << ", random_states.size(): " << random_states.size()
+                   << std::endl;
+
   Array<MeasureInput> inputs;
   size_t offset_best = 0, offset_random = 0;
 
@@ -639,12 +670,16 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
     bool has_best = offset_best < best_states.size();
     bool has_random = offset_random < random_states.size();
 
+    std::string log_str = "";
+
     if (static_cast<int>(inputs.size()) < num_good) {
       // prefer best states
       if (has_best) {
         state = best_states[offset_best++];
+        log_str = ", PICK BEST\n";
       } else if (has_random) {
         state = random_states[offset_random++];
+        log_str = ", PICK RANDOM\n";
       } else {
         break;
       }
@@ -652,8 +687,10 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       // prefer random states
       if (has_random) {
         state = random_states[offset_random++];
+        log_str = ", PICK RANDOM\n";
       } else if (has_best) {
         state = best_states[offset_best++];
+        log_str = ", PICK BEST\n";
       } else {
         break;
       }
@@ -665,6 +702,8 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       measured_states_set_.insert(std::move(state_str));
       measured_states_vector_.push_back(state);
       inputs.push_back(MeasureInput(search_task, state));
+      WriteState(*state.operator->());
+      WriteString(log_str);
     }
   }
 
