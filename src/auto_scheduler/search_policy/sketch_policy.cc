@@ -187,12 +187,14 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
         // Retrain the cost model before the next search round
         PrintTitle("Train cost model", verbose);
         program_cost_model->Update(inputs, results);
-
         PrintTimeElapsed(t_begin, "training", verbose);
       }
 
       // Search one round to get promising states
       PrintTitle("Search", verbose);
+      std::string log_ct = "Search... ct: " + std::to_string(ct) + "\n";
+      WriteString(log_ct);
+
       best_states = SearchOneRound(num_random * 3, &random_states);
 
       // Infer bound. This is necessary for computing the correct ToStr() for redundancy check
@@ -294,6 +296,10 @@ Array<State> SketchPolicyNode::SearchOneRound(int num_random_states, Array<State
           GetDoubleParam(params, SketchParamKey::SampleInitPopulation::use_measured_ratio) *
           population));
 
+  StdCout(verbose) << "population: " << population
+                   << ", num_use_measured: " << num_use_measured
+                   << std::endl;
+
   // 1. Generate sketches
   if (sketch_cache_.empty()) {
     sketch_cache_ = GenerateSketches();
@@ -301,6 +307,10 @@ Array<State> SketchPolicyNode::SearchOneRound(int num_random_states, Array<State
 
   // 2. Sample the init population
   Array<State> init_population = SampleInitPopulation(sketch_cache_);
+  WriteString("Sample result\n");
+  for (const auto& state : init_population) {
+    WriteState(*state.operator->());
+  }
 
   // 3. Perform evolutionary search.
   // Also insert already measured good states to the initial population
@@ -539,8 +549,7 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
   ComputePrefixSumProb(rule_weights, &rule_selection_probs);
 
-  StdCout(verbose) << "population: " << population
-                   << ", mutation_prob: " << mutation_prob
+  StdCout(verbose) << "mutation_prob: " << mutation_prob
                    << ", num_iters: " << num_iters
                    << ", num_mutation_rules: " << mutation_rules.size()
                    << ", out_size: " << out_size
@@ -548,6 +557,8 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
   // Genetic Algorithm
   for (int k = 0; k < num_iters + 1; ++k) {
+    WriteString(std::to_string(k) + "th loop during evolutionary search\n");
+
     // Maintain the heap
     *pnow = search_task->compute_dag.InferBound(*pnow);
     PruneInvalidState(search_task, pnow);
@@ -556,22 +567,24 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
     for (size_t i = 0; i < pnow->size(); ++i) {
       const State& state = (*pnow)[i];
       std::string state_str = state.ToStr();
+      std::string log_str = "";
 
       // Insert heap only if this has not been generated before.
       if (in_heap.count(state_str) == 0) {
-        // Record state to history json.
-        WriteState(*state.operator->());
-
         if (static_cast<int>(heap.size()) < out_size) {
           heap.emplace_back((*pnow)[i], pop_scores[i]);
           std::push_heap(heap.begin(), heap.end(), cmp);
           in_heap.insert(state_str);
-          WriteString(", PICK\n");
+          WriteString("PICK\n");
+          WriteState(*state.operator->());
         } else if (pop_scores[i] > heap.front().second) {
-          WriteString(", PICK\n");
+          log_str = "PICK " + std::to_string(pop_scores[i]) + "\n";
+          WriteString(log_str);
+          WriteState(*state.operator->());
           const State& front = heap.front().first;
+          log_str = "POP " + std::to_string(heap.front().second) + "\n";
+          WriteString(log_str);
           WriteState(*front.operator->());
-          WriteString(", POP\n");
           std::string old_state_str = front.ToStr();
           in_heap.erase(old_state_str);
           in_heap.insert(state_str);
@@ -580,7 +593,11 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
           heap.back() = StateHeapItem(state, pop_scores[i]);
           std::push_heap(heap.begin(), heap.end(), cmp);
         } else {
-          WriteString(", DROP\n");
+          WriteString("DROP\n");
+          log_str = "DROP " + std::to_string(pop_scores[i]) +
+                    ", MIN " + std::to_string(heap.front().second) + "\n";
+          WriteString(log_str);
+          WriteState(*state.operator->());
         }
         if (pop_scores[i] > max_score) {
           max_score = pop_scores[i];
@@ -616,7 +633,11 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
 
       if (dis(rand_gen) < mutation_prob) {
         const auto& rule = mutation_rules[RandomChoose(rule_selection_probs, &rand_gen)];
+        WriteString("Before mutate\n");
+        WriteState(*tmp_s.operator->());
         if (rule->Apply(this, &tmp_s, &rand_gen) == PopulationGenerationRule::ResultKind::kValid) {
+          WriteString("After mutate\n");
+          WriteState(*tmp_s.operator->());
           pnext->push_back(std::move(tmp_s));
           mutation_success_ct++;
         } else {
@@ -676,10 +697,10 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       // prefer best states
       if (has_best) {
         state = best_states[offset_best++];
-        log_str = ", PICK BEST\n";
+        log_str = "PICK BEST\n";
       } else if (has_random) {
         state = random_states[offset_random++];
-        log_str = ", PICK RANDOM\n";
+        log_str = "PICK RANDOM\n";
       } else {
         break;
       }
@@ -687,10 +708,10 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       // prefer random states
       if (has_random) {
         state = random_states[offset_random++];
-        log_str = ", PICK RANDOM\n";
+        log_str = "PICK RANDOM\n";
       } else if (has_best) {
         state = best_states[offset_best++];
-        log_str = ", PICK BEST\n";
+        log_str = "PICK BEST\n";
       } else {
         break;
       }
@@ -702,8 +723,8 @@ Array<MeasureInput> SketchPolicyNode::PickStatesWithEpsGreedy(const Array<State>
       measured_states_set_.insert(std::move(state_str));
       measured_states_vector_.push_back(state);
       inputs.push_back(MeasureInput(search_task, state));
-      WriteState(*state.operator->());
       WriteString(log_str);
+      WriteState(*state.operator->());
     }
   }
 
